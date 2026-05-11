@@ -905,7 +905,333 @@ This change has no safe automatic rollback.
 
 并要求人工确认或拆成独立 mission。
 
-## 19. Why Existing Tools Do Not Fully Solve This
+## 19. Change Taxonomy and Profiles
+
+变更分类有价值，但不能在 V0 做成庞大流程。
+
+小应用不需要面对几十种 change type；规模化 Web 应用、操作系统、嵌入式、CAD、数据平台、金融、医疗等复杂领域又确实需要更细的变更 policy。
+
+因此设计原则是：
+
+```text
+Simple by default, extensible by profile.
+```
+
+中文：
+
+```text
+默认简单，通过 profile 扩展。
+```
+
+### 19.1 V0 粗粒度类型
+
+V0 只内置少量粗粒度类型：
+
+```text
+product
+business
+ui_ux
+api_contract
+data_schema
+architecture
+security
+environment
+workflow
+```
+
+每个 change proposal 只要求选一个大类：
+
+```yaml
+id: change-008
+type: api_contract
+risk: medium
+reason: "前端需要区分 invalid_password 和 account_locked"
+affected:
+  - src/api/auth/**
+  - src/types/auth.ts
+  - tests/contracts/auth.test.ts
+requires_gate: approve_api_change
+validation:
+  - npm run test:contract
+  - npm run typecheck
+```
+
+系统根据大类给默认提醒：
+
+- 还缺什么上下文。
+- 需要哪个 gate。
+- 建议跑什么 validation。
+- 是否需要 rollback plan。
+
+### 19.2 可选 subtype
+
+更细分类只作为可选字段：
+
+```yaml
+type: security
+subtype: privacy_compliance
+```
+
+或：
+
+```yaml
+type: environment
+subtype: release_pipeline
+```
+
+这样 V0 不强迫用户理解复杂 taxonomy，但复杂项目可以逐步增加细分。
+
+### 19.3 Project Profiles
+
+专业领域的差异应通过 profile 扩展，而不是硬编码进 engine。
+
+示例：
+
+```text
+profiles/
+  web-saas.yaml
+  mobile-app.yaml
+  embedded.yaml
+  operating-system.yaml
+  cad-software.yaml
+  data-platform.yaml
+  ml-platform.yaml
+  fintech.yaml
+  healthcare.yaml
+```
+
+不同 profile 可以定义不同的 taxonomy、gate、validation 和 rollback policy。
+
+Web SaaS 可能关注：
+
+- API compatibility
+- schema migration
+- auth/security
+- feature flags
+- observability
+- release pipeline
+
+Embedded 可能关注：
+
+- hardware interface
+- real-time constraints
+- firmware flashing
+- power usage
+- safety certification
+
+CAD 软件可能关注：
+
+- geometry kernel
+- file format compatibility
+- rendering accuracy
+- plugin API
+- performance regression
+
+### 19.4 Profile Policy 示例
+
+```yaml
+change_taxonomy:
+  default_types:
+    - product
+    - api_contract
+    - data_schema
+    - architecture
+    - security
+    - environment
+
+policies:
+  data_schema:
+    requires_gate: approve_schema_change
+    requires_rollback_plan: true
+    suggested_validation:
+      - migration test
+      - backup check
+
+  security:
+    requires_gate: approve_security_change
+    requires_review: true
+    suggested_validation:
+      - security test
+      - dependency audit
+
+  environment:
+    requires_gate: approve_env_change
+    requires_rollback_plan: true
+    suggested_validation:
+      - preflight
+      - deploy dry-run
+```
+
+### 19.5 Taxonomy 的产品价值
+
+分类不是为了分类，而是为了让系统知道：
+
+- 还缺什么信息。
+- 谁需要批准。
+- 该跑什么验证。
+- 怎么安全回退。
+- 是否应该拆成独立 mission。
+
+因此 V0 不暴露庞大的变更分类，只提供少量粗粒度类型；细分 taxonomy 通过项目 profile 和 policy 扩展。
+
+## 20. Team Collaboration and Review Policy
+
+Mission Control 应该是 team-ready，但不能 team-required。
+
+也就是说，单人使用时产品必须成立；多人协作时，团队能力来自同一套 mission record、gate、review、handoff 和 policy，而不是一开始就做复杂团队系统。
+
+### 20.1 有价值的 Review
+
+有价值的 review 不是“有人点 approve”，而是审查 AI 容易搞错、人类必须承担判断责任的地方。
+
+典型有价值 review：
+
+- Intent review：这个任务是不是做对了问题，而不是只做对了字面需求。
+- Scope review：改动范围有没有扩大、遗漏或越界。
+- Acceptance review：验收标准是否真实覆盖用户目标。
+- Architecture review：是否破坏边界、引入长期复杂度。
+- API / Data review：接口、schema、数据迁移是否兼容、可回退。
+- Security / Privacy review：权限、输入、密钥、PII、审计是否安全。
+- Release risk review：是否影响部署、灰度、回滚、线上稳定性。
+- Handoff review：下一个人或 agent 能不能接手。
+
+不太有价值的 review：
+
+- 对每个小 diff 都强制人工批准。
+- 已经能被 test、lint、typecheck 覆盖的机械检查。
+- 没有上下文的橡皮图章 approve。
+- agent 自己写完再自己宣布没问题。
+- 流程上看似严格，但没有记录“为什么批准”。
+
+### 20.2 协作关键节点
+
+团队协作不应该围绕 chat，而应该围绕 judgment points。
+
+关键节点：
+
+```text
+mission.created
+plan.proposed
+plan.approved
+change.proposed
+change.approved / rejected / split
+risky_mutation.requested
+validation.failed / passed
+diff.ready
+review.requested
+handoff.created
+mission.completed
+```
+
+这些节点天然适合协作，因为它们需要判断，而不只是执行。
+
+### 20.3 风险驱动 Review
+
+Review 应该由风险触发，而不是由仪式触发：
+
+```text
+Review should be risk-based, not ceremony-based.
+```
+
+中文：
+
+```text
+Review 应该由风险触发，而不是由仪式触发。
+```
+
+工具不应写死“所有任务必须三人审批”。它应提供默认 policy，并允许项目和团队调整。
+
+示例：
+
+```yaml
+review_policy:
+  default:
+    plan_review: required
+    diff_review: optional
+
+  api_contract:
+    review: required
+    reviewers:
+      - api-owner
+    required_evidence:
+      - contract_tests
+
+  data_schema:
+    review: required
+    gate: approve_schema_change
+    rollback_plan: required
+
+  security:
+    review: required
+    reviewers:
+      - security-owner
+    required_evidence:
+      - security_risk_note
+
+  ui_ux:
+    review: optional
+    evidence:
+      - screenshot
+      - manual_check
+```
+
+### 20.4 Policy 层级
+
+协作流程应分三层：
+
+```text
+1. Defaults
+2. Project Profile
+3. Team Policy
+```
+
+Defaults 面向个人和小项目，少量 gate 即可。
+
+Project Profile 面向不同工程领域，定义自己的 change taxonomy、validation policy 和 rollback policy。
+
+Team Policy 面向团队，定义哪些 gate 是 blocking，哪些只是 advisory。
+
+示例：
+
+```yaml
+gates:
+  approve_plan:
+    mode: blocking
+
+  approve_ui_change:
+    mode: advisory
+
+  approve_schema_change:
+    mode: blocking
+
+  approve_destructive_change:
+    mode: blocking
+    requires_reason: true
+```
+
+### 20.5 团队能力来自哪里
+
+Mission Control 真正发挥团队能力的地方不是多人在线聊天，而是：
+
+1. 让所有人看到同一份工程事实：`mission.yaml`、`events.jsonl`、`decisions.md`、`changes/`、`validation.log`、`handoff.md`。
+2. 让关键判断被结构化记录：谁批准了什么，为什么批准，有什么风险。
+3. 让 reviewer 不再从零读上下文：reviewer 直接看 mission summary、change reason、diff、validation、rollback plan。
+4. 让换人和换 agent 成本变低：handoff 是标准产物，不是临时总结。
+5. 让团队流程可配置：不同项目、不同风险等级、不同领域使用不同 policy。
+
+核心结论：
+
+```text
+Mission Control should not hardcode a collaboration process. It should provide shared engineering records, risk-based gates, configurable review policies, and handoff artifacts.
+```
+
+中文：
+
+```text
+Mission Control 不应该写死某一种协作流程。它应该提供共享工程记录、基于风险的 gate、可配置 review policy 和标准化 handoff 产物。
+```
+
+## 21. Why Existing Tools Do Not Fully Solve This
 
 现有工具证明了需求，但大多优化的是 agent 执行、IDE 体验、云端委派或底层编排框架。
 
@@ -996,7 +1322,7 @@ AI-assisted software work as controlled engineering records.
 
 这个定位允许 Mission Control 与现有 agent 和框架共存：Claude Code、Codex、Aider、Cline、LangGraph、OpenHands 都可以成为 engine 后面的 worker 或 runtime，而不是必须被替代。
 
-## 20. 与 Superpowers 的关系
+## 22. 与 Superpowers 的关系
 
 Mission Control 和 Superpowers 相似，但不是同一层产品。
 
@@ -1043,7 +1369,7 @@ Mission Control can use Superpowers-style skills as workflow modules.
 Mission Control 可以把 Superpowers 式 skills 作为 workflow 模块，但产品核心是 mission record 和 execution loop。
 ```
 
-## 21. 非目标
+## 23. 非目标
 
 V0/V1 明确不做：
 
@@ -1060,7 +1386,7 @@ V0/V1 明确不做：
 
 这些能力只有在 mission engine、record 和 validation loop 成立后才有价值。
 
-## 22. 路线图
+## 24. 路线图
 
 建议路线：
 
@@ -1084,7 +1410,7 @@ V5: enterprise governance
 - V4 支持小团队可视化。
 - V5 支持组织治理。
 
-## 23. 指标
+## 25. 指标
 
 第一阶段 North Star 不应是调用次数或生成代码行数。
 
@@ -1106,7 +1432,7 @@ Validated Missions Completed per Week
 
 真正有价值的不是 AI 写了多少代码，而是多少任务被稳定推进到了可接受的交付状态。
 
-## 24. 护城河
+## 26. 护城河
 
 护城河不是模型。
 
@@ -1121,12 +1447,14 @@ Validated Missions Completed per Week
 3. Skills Workflow：把优秀工程师的方法沉淀成可组合流程。
 4. Validation Loop：把 AI 输出变成可信交付。
 5. Controlled Change Loop：把边做边发现的需求变化变成可批准、可追踪的工程过程。
-6. Traceability and Rollback：让代码、环境、schema 和架构变更都具备记录、检查和回退路径。
-7. Git-backed Execution：让历史、回退、协作和审计天然接入开发流程。
+6. Change Taxonomy and Profiles：默认简单，同时允许不同工程领域定义自己的变更 policy。
+7. Risk-based Review Policy：让团队协作围绕关键判断点，而不是围绕形式化审批。
+8. Traceability and Rollback：让代码、环境、schema 和架构变更都具备记录、检查和回退路径。
+9. Git-backed Execution：让历史、回退、协作和审计天然接入开发流程。
 
 长期看，最值钱的是一套 AI 协助软件开发的工程操作系统。
 
-## 25. 近期决策清单
+## 27. 近期决策清单
 
 建议默认决策：
 
@@ -1142,8 +1470,10 @@ Validated Missions Completed per Week
 - patch snapshot 在每次 `needs_review` 前生成，默认保留最新 snapshot 和最终 snapshot。
 - V0 引入 `needs_decision` 状态，所有 scope、acceptance、plan 的实质变更都必须走 change proposal。
 - 非代码变更必须先写 rollback plan，再进入 approval gate。
+- V0 的 change taxonomy 只暴露粗粒度类型，细分类型通过 `subtype` 和 project profile 扩展。
+- V0 的 review policy 默认轻量；高风险类型可以配置 blocking gate，低风险 review 默认 advisory 或 optional。
 
-## 26. 最终判断
+## 28. 最终判断
 
 Mission Control 不应该从“做一个更强的 agent”开始。
 
