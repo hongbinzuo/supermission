@@ -446,7 +446,557 @@ Repo / Tests / Git / PR
 - Git 负责历史、分支、diff 和回退。
 - database 只在后续作为索引层出现。
 
-## 16. 与 Superpowers 的关系
+## 16. Controlled Change Loop
+
+Mission 不能假设初始 spec 永远正确。
+
+真实软件开发里，任何需求、任务和计划即使前期想得再周到，中间也可能发生变化：
+
+- 用户忘了给细节。
+- 用户想错了细节。
+- agent 发现原计划不可行。
+- 实现中出现更好的设计。
+- 测试暴露原假设错误。
+- reviewer 发现风险比预期大。
+- 做到一半才激发出新的产品判断。
+
+因此 Mission Control 的原则是：
+
+```text
+Plans are hypotheses, not contracts.
+```
+
+中文：
+
+```text
+计划是假设，不是契约。
+```
+
+Mission Control 必须支持有纪律的变更，而不是假装需求从一开始就是固定的。
+
+所有变更都应进入同一条结构化管线：
+
+```text
+change.proposed -> needs_decision -> approve/reject/defer/split -> spec/plan update -> resume
+```
+
+### 16.1 触发场景
+
+以下情况都可以触发变更提案：
+
+- 原 acceptance criteria 不完整。
+- 原 scope 太窄或太宽。
+- 用户补充了新细节。
+- agent 发现实现路径需要调整。
+- validation 失败揭示了原计划缺口。
+- review comment 指出了新风险。
+- 当前任务应该拆出子 mission。
+
+### 16.2 状态机扩展
+
+V0 状态机应加入 `needs_decision`：
+
+```text
+draft
+planned
+approved
+running
+needs_decision
+needs_review
+validated
+completed
+
+blocked
+failed
+paused
+```
+
+当变更被提出后，engine 应暂停当前执行：
+
+```text
+running -> needs_decision
+```
+
+除非变更只是低风险的记录性补充，否则 agent 不能继续静默扩大 scope 或改变 acceptance criteria。
+
+### 16.3 Change Proposal
+
+变更提案应落盘为结构化文件：
+
+```text
+.missions/mission-001/changes/change-003.yaml
+```
+
+示例：
+
+```yaml
+id: change-003
+status: proposed
+source:
+  actor: worker-agent
+  type: agent
+reason: "原 scope 没覆盖 tests/auth/login.spec.ts，但验收需要新增测试"
+affected:
+  - scope
+  - plan.md
+  - acceptance
+options:
+  - id: expand_scope
+    description: "允许修改 tests/auth/**"
+  - id: split_mission
+    description: "把测试补充拆成新 mission"
+recommendation: expand_scope
+requires_gate: approve_scope_change
+created_at: "2026-05-11T00:00:00Z"
+```
+
+同时写入 `events.jsonl`：
+
+```json
+{"type":"change.proposed","actor":"worker-agent","change":"change-003"}
+{"type":"mission.state.changed","from":"running","to":"needs_decision"}
+```
+
+### 16.4 Change Gates
+
+新增 gates：
+
+- approve_scope_change
+- approve_acceptance_change
+- approve_plan_revision
+- approve_split_mission
+- approve_env_change
+- approve_schema_change
+- approve_architecture_change
+- approve_destructive_change
+
+这些 gates 的意义不是制造流程负担，而是防止 agent 在用户没有意识到的情况下改变任务本质。
+
+## 17. Change Entry Points
+
+变更入口应该是多入口、同一管线。
+
+聊天可以触发变更，但变更不能停留在聊天里。人类、当前 agent、另一个 agent、reviewer、validation runner 都可以提出变更，但最终都必须变成结构化 change proposal。
+
+### 17.1 CLI 入口
+
+给人和脚本使用：
+
+```text
+mission change propose
+mission change list
+mission change show change-003
+mission change approve change-003
+mission change reject change-003
+mission change split change-003
+```
+
+也可以支持简写：
+
+```text
+mission amend
+```
+
+### 17.2 TUI 入口
+
+Terminal TUI 中应固定展示 `Changes` 区域：
+
+```text
+Mission: fix-login-error
+
+Status: needs_decision
+
+Pending Changes:
+  change-003  Update acceptance criteria for account enumeration risk
+
+Actions:
+  [a] approve
+  [r] reject
+  [d] defer
+  [s] split into new mission
+  [e] edit proposal
+```
+
+这是最适合人的变更入口。
+
+### 17.3 Agent Tool 入口
+
+agent 不应靠聊天暗示变更，而应调用结构化工具：
+
+```json
+{
+  "tool": "mission.change.propose",
+  "reason": "原 scope 没覆盖 tests/auth/login.spec.ts，但验收需要新增测试",
+  "affected": ["scope", "plan.md"],
+  "options": ["expand_scope_to_tests_auth", "skip_test_change", "split_test_work"],
+  "recommendation": "expand_scope_to_tests_auth",
+  "risk": "不扩 scope 会导致 validation 缺少覆盖"
+}
+```
+
+agent 一旦调用这个工具，engine 自动进入 `needs_decision`。
+
+### 17.4 Review 入口
+
+reviewer 可以通过 `review.md` 或后续 GitHub PR comment 提出变更：
+
+```text
+@mission propose-change
+reason: 这个 diff 改了错误提示，但没有覆盖 rate limit 失败场景
+affects: acceptance, tests
+recommendation: add acceptance criterion
+```
+
+GitHub integration 后续可以把 PR comment 转换成 `change.proposed`。
+
+### 17.5 Validation 入口
+
+validation runner 可以提出 `change.suggested`，但不能自动修改 spec：
+
+```text
+validation.failed -> change.suggested -> needs_decision
+```
+
+这适合处理测试失败揭示原验收标准不完整的情况。
+
+### 17.6 Handoff / Resume 入口
+
+换 agent 或隔天恢复时，新 agent 可以先做 mission review。如果发现上下文缺口，也可以提出 change proposal。
+
+这让“接手时发现需求不清楚”变成正式流程，而不是重新开一段混乱聊天。
+
+## 18. Traceability and Rollback
+
+可追踪和可回退是 Mission Control 的核心用户价值。
+
+### 18.1 可追踪如何实现
+
+可追踪不是保存完整聊天，而是保存结构化工程事件。
+
+每个 mission 都应至少包含：
+
+```text
+.missions/mission-001/
+  mission.yaml
+  events.jsonl
+  decisions.md
+  changes/
+    change-003.yaml
+  plan.md
+  validation.log
+  patch.diff
+  handoff.md
+```
+
+用户通过 CLI 或 TUI 查看 timeline：
+
+```text
+mission timeline
+```
+
+示例输出：
+
+```text
+10:21 mission created
+10:24 plan proposed
+10:27 plan approved by hongbin
+10:42 agent found missing auth test scope
+10:43 change-003 proposed
+10:45 change-003 approved
+11:02 validation failed: npm test -- auth
+11:10 implementation updated
+11:14 validation passed
+11:16 diff ready for review
+```
+
+用户查看某个变更：
+
+```text
+mission change show change-003
+```
+
+它应显示：
+
+```text
+Why:
+  原 scope 没覆盖 tests/auth/**，但验收要求新增登录失败测试。
+
+Changed:
+  mission.yaml: scope.allow 增加 tests/auth/**
+  plan.md: 增加测试步骤
+  acceptance: 增加账号枚举保护验证
+
+Approved by:
+  hongbin at 10:45
+```
+
+### 18.2 代码回退
+
+代码回退依赖 Git 隔离分支、checkpoint 和 patch snapshot。
+
+每个 mission 开始时创建隔离 branch 或 worktree：
+
+```text
+main
+  |
+  +-- mission/fix-login-error
+```
+
+关键节点创建 checkpoint：
+
+```text
+before_plan_approval
+before_scope_change
+before_agent_run
+before_validation
+before_review
+```
+
+用户查看：
+
+```text
+mission checkpoints
+```
+
+示例：
+
+```text
+checkpoint-001  before agent run
+checkpoint-002  before scope change change-003
+checkpoint-003  before validation
+checkpoint-004  before review
+```
+
+用户回退：
+
+```text
+mission rollback checkpoint-002
+```
+
+系统应执行：
+
+1. 保存当前 diff 为 rollback-before-current.patch。
+2. 恢复到目标 checkpoint。
+3. 写入 rollback event。
+4. 将 mission 状态设为 `needs_decision` 或 `running`。
+
+### 18.3 环境变更回退
+
+环境变更包括：
+
+- 安装依赖。
+- 修改 `.env`。
+- 启动或删除服务。
+- 修改 Docker Compose。
+- 切换 runtime。
+
+这类动作必须登记为 environment mutation，并在执行前提供 restore plan：
+
+```yaml
+type: env.change
+action: add_service
+target: docker-compose.yml
+rollback:
+  command: docker compose down postgres
+  files:
+    restore:
+      - docker-compose.yml
+      - .env.example
+requires_gate: approve_env_change
+```
+
+用户在 TUI 中看到：
+
+```text
+Change type: Environment change
+Action: Add PostgreSQL service
+Rollback:
+  - restore docker-compose.yml
+  - restore .env.example
+  - stop postgres container
+
+[Approve] [Reject] [Edit rollback plan]
+```
+
+### 18.4 数据库和 Schema 回退
+
+数据库/schema 变更必须比普通代码更严格。
+
+任何 migration 都应带：
+
+- forward migration
+- rollback migration
+- data risk
+- backup/checkpoint strategy
+
+示例：
+
+```yaml
+type: schema.change
+target: db/migrations/20260511_add_missions_table.sql
+forward:
+  command: pnpm db:migrate
+rollback:
+  command: pnpm db:rollback 20260511_add_missions_table
+backup:
+  command: pg_dump --schema-only --file .missions/mission-001/backups/schema-before.sql
+risk:
+  data_loss: false
+  destructive: false
+requires_gate: approve_schema_change
+```
+
+删除表、删除列、重写数据等 destructive change 必须使用更高等级 gate：
+
+```text
+approve_destructive_change
+```
+
+V0/V1 默认不允许 agent 自动执行 destructive schema change。agent 可以生成计划和 rollback strategy，但最终执行必须由人确认。
+
+### 18.5 架构变更回退
+
+删除框架组件、替换 ORM、重构 routing、移除大型依赖，都应登记为 architecture change。
+
+示例：
+
+```yaml
+type: architecture.change
+reason: "移除旧 routing wrapper"
+affected:
+  - src/router/**
+  - package.json
+  - tests/routing/**
+rollback:
+  strategy: restore_checkpoint
+  checkpoint: checkpoint-before-architecture-change
+validation:
+  - npm test -- routing
+  - npm run build
+requires_gate: approve_architecture_change
+```
+
+执行前必须：
+
+1. 创建 checkpoint。
+2. 记录 affected files。
+3. 写 rollback strategy。
+4. 明确 validation commands。
+
+### 18.6 高风险变更原则
+
+任何非代码变更，在执行前必须有回退计划：
+
+```text
+Every non-code mutation needs a rollback plan before execution.
+```
+
+中文：
+
+```text
+任何非代码变更，在执行前必须有回退计划。
+```
+
+对于无法安全回退的变更，Mission Control 应明确显示：
+
+```text
+This change has no safe automatic rollback.
+```
+
+并要求人工确认或拆成独立 mission。
+
+## 19. Why Existing Tools Do Not Fully Solve This
+
+现有工具证明了需求，但大多优化的是 agent 执行、IDE 体验、云端委派或底层编排框架。
+
+Mission Control 不应该靠“更会写代码”竞争，而应该定义一个可移植的 AI 协助软件工程控制记录层：mission spec、状态机、gate、事件、artifact、验证、评审、交接和回退。
+
+### 19.1 分类
+
+| 类型 | 代表 | 已解决 | 没完全解决 |
+| --- | --- | --- | --- |
+| 终端/IDE coding agent | Claude Code, Codex, Aider, Cline, Roo Code | 读代码、改代码、跑命令、局部审批、生成 diff | mission 作为标准工程记录；跨 agent 交接；统一事件日志；任务状态机 |
+| 后台 PR agent | GitHub Copilot coding agent, Cursor Background Agents | 后台执行、分支/PR、review 请求、云端环境 | 本地优先、repo-native mission spec、可移植 artifact、非平台绑定控制层 |
+| 商业 AI 软件工程师 | Devin | 任务执行、PR、代码库索引、团队场景、review | 强 SaaS/平台化；mission record 不一定是用户 repo 内可迁移标准 |
+| Mission/spec 产品 | Factory Missions, Kiro | 最接近：计划、milestones、spec、skills/hooks、orchestration | 仍绑定各自产品体验；不一定以 Git-backed open mission record 为核心抽象 |
+| Agent 框架 | LangGraph, LangChain, CrewAI, AutoGen | durable execution、human-in-loop、多 agent 编排、状态持久化 | 是开发框架，不是面向软件工程交付的产品规范；不定义 mission record、review、handoff、git 回退 |
+| 开源 agent 平台 | OpenHands, OpenClaw, Hermes-like agents | 自主执行、工具调用、浏览器/终端/文件操作、部分 memory/skills | 更偏 agent runtime 或个人自动化；不是专门的软件工程控制层 |
+
+### 19.2 工具判断
+
+**Claude Code / Codex**
+
+它们是很强的 coding agent surface，适合读代码、修改代码、运行命令、解释 diff。
+
+但它们本质仍是 agent 执行界面，不是标准化 mission record。Mission Control 可以把它们当 worker，而不是正面替代它们。
+
+**Aider / Cline / Roo Code**
+
+这些工具降低了本地 AI coding 的使用门槛，并支持真实代码修改和命令执行。
+
+但它们通常围绕会话、任务或 IDE 操作展开，不把 `mission.yaml`、`events.jsonl`、`decisions.md`、`changes/`、`handoff.md` 作为可移植工程记录核心。
+
+**GitHub Copilot coding agent / Cursor Background Agents**
+
+它们已经把 AI coding 推向后台执行、分支、PR 和 review 请求。
+
+但它们更接近平台内能力，优势是覆盖面和托管体验。Mission Control 的差异应是 local-first、Git-backed、adapter-agnostic 和可被不同 agent 使用。
+
+**Devin**
+
+Devin 更接近商业化的 AI 软件工程师，证明“任务委派给 agent 并产出 PR”是有市场的。
+
+Mission Control 不应该和 Devin 拼云端自动干活，而应强调用户 repo 内可审计、可迁移、可回退的 mission record。
+
+**Factory Missions**
+
+Factory Missions 是最接近的直接验证。它证明 mission、plan、milestone、skills 和 orchestration 是真实需求。
+
+Mission Control 的差异应是：local-first、Git-backed、open mission record、adapter-agnostic，并优先服务个人和小团队的本地工程控制层。
+
+**Kiro**
+
+Kiro 的 specs、steering、hooks 证明了 spec-driven development 和 agentic IDE 结合的价值。
+
+Mission Control 的差异应是 engine-first，而不是 IDE-first；它不把 spec 关在某个 IDE 里，而把 mission record 放进 repo。
+
+**LangGraph / LangChain / CrewAI / AutoGen**
+
+这些是底层 agent 框架或编排框架。它们能提供 durable execution、human-in-loop、多 agent、状态持久化等能力。
+
+但它们不会替产品定义软件开发里的 mission spec、gate、diff、validation、handoff、review、rollback。Mission Control 可以借鉴或使用这些框架，但产品核心不是框架能力本身。
+
+**OpenHands / OpenClaw / Hermes-like agents**
+
+开源 agent 平台证明了自主工具调用和软件开发 agent runtime 的需求。
+
+但 Mission Control 关注的不是再造一个 runtime，而是定义 AI 协助软件开发时的工程控制记录层。
+
+### 19.3 结论
+
+现有工具分别解决了一部分问题：
+
+- agent 如何执行。
+- agent 如何在 IDE 中工作。
+- agent 如何跑在云端。
+- 多 agent 如何编排。
+- spec 如何辅助开发。
+
+Mission Control 要解决的是另一层问题：
+
+```text
+AI-assisted software work as controlled engineering records.
+```
+
+中文：
+
+```text
+把 AI 协助软件开发变成受控的工程记录。
+```
+
+这个定位允许 Mission Control 与现有 agent 和框架共存：Claude Code、Codex、Aider、Cline、LangGraph、OpenHands 都可以成为 engine 后面的 worker 或 runtime，而不是必须被替代。
+
+## 20. 与 Superpowers 的关系
 
 Mission Control 和 Superpowers 相似，但不是同一层产品。
 
@@ -493,7 +1043,7 @@ Mission Control can use Superpowers-style skills as workflow modules.
 Mission Control 可以把 Superpowers 式 skills 作为 workflow 模块，但产品核心是 mission record 和 execution loop。
 ```
 
-## 17. 非目标
+## 21. 非目标
 
 V0/V1 明确不做：
 
@@ -510,7 +1060,7 @@ V0/V1 明确不做：
 
 这些能力只有在 mission engine、record 和 validation loop 成立后才有价值。
 
-## 18. 路线图
+## 22. 路线图
 
 建议路线：
 
@@ -534,7 +1084,7 @@ V5: enterprise governance
 - V4 支持小团队可视化。
 - V5 支持组织治理。
 
-## 19. 指标
+## 23. 指标
 
 第一阶段 North Star 不应是调用次数或生成代码行数。
 
@@ -556,7 +1106,7 @@ Validated Missions Completed per Week
 
 真正有价值的不是 AI 写了多少代码，而是多少任务被稳定推进到了可接受的交付状态。
 
-## 20. 护城河
+## 24. 护城河
 
 护城河不是模型。
 
@@ -570,11 +1120,13 @@ Validated Missions Completed per Week
 2. Mission Record：把 AI coding 从聊天记录变成工程记录。
 3. Skills Workflow：把优秀工程师的方法沉淀成可组合流程。
 4. Validation Loop：把 AI 输出变成可信交付。
-5. Git-backed Execution：让历史、回退、协作和审计天然接入开发流程。
+5. Controlled Change Loop：把边做边发现的需求变化变成可批准、可追踪的工程过程。
+6. Traceability and Rollback：让代码、环境、schema 和架构变更都具备记录、检查和回退路径。
+7. Git-backed Execution：让历史、回退、协作和审计天然接入开发流程。
 
 长期看，最值钱的是一套 AI 协助软件开发的工程操作系统。
 
-## 21. 近期决策清单
+## 25. 近期决策清单
 
 建议默认决策：
 
@@ -588,12 +1140,14 @@ Validated Missions Completed per Week
 - VS Code / Cursor-compatible extension 推迟到 V2，目标是覆盖面，不是早期产品手感。
 - validation commands 失败后进入 `blocked` 或 `failed`，必须记录 stdout/stderr 和下一步建议。
 - patch snapshot 在每次 `needs_review` 前生成，默认保留最新 snapshot 和最终 snapshot。
+- V0 引入 `needs_decision` 状态，所有 scope、acceptance、plan 的实质变更都必须走 change proposal。
+- 非代码变更必须先写 rollback plan，再进入 approval gate。
 
-## 22. 最终判断
+## 26. 最终判断
 
 Mission Control 不应该从“做一个更强的 agent”开始。
 
-它应该从定义 AI 参与软件开发时，工作如何被规格化、执行化、验证化、记录化和协作化开始。
+它应该从定义 AI 参与软件开发时，工作如何被规格化、执行化、验证化、记录化、变更化、回退化和协作化开始。
 
 第一步不是完整平台，而是一个可以自己高频使用的本地闭环：
 
