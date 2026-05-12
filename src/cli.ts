@@ -1,0 +1,717 @@
+#!/usr/bin/env bun
+import { Command } from "commander";
+import { readFile } from "node:fs/promises";
+import YAML from "yaml";
+import { MissionStore } from "./store.js";
+import { ChangeTypeSchema, TaskStatusSchema } from "./types.js";
+
+type GlobalOptions = {
+  repo: string;
+};
+
+export async function runCli(argv = process.argv.slice(2)): Promise<void> {
+  const program = new Command();
+  program
+    .name("mission")
+    .description("Mission Control for AI Coding")
+    .option("--repo <path>", "Repository root", ".")
+    .showHelpAfterError();
+
+  program
+    .command("new")
+    .description("Create a mission record")
+    .argument("<goal...>", "Mission goal")
+    .option("--id <id>", "Explicit mission id")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--acceptance <item>", "Acceptance criterion", collect, [])
+    .option("--validation <command>", "Validation command", collect, [])
+    .action(async (goalParts: string[], options: NewOptions) => {
+      const store = storeFrom(program);
+      const missionId = await store.createMission({
+        id: options.id,
+        goal: goalParts.join(" "),
+        actor: options.actor,
+        acceptance: options.acceptance,
+        validationCommands: options.validation,
+      });
+      console.log(missionId);
+    });
+
+  program
+    .command("plan")
+    .description("Generate an initial plan artifact")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "planner-agent")
+    .option("--note <note>", "Planning note")
+    .action(async (missionId: string, options: { actor: string; note?: string }) => {
+      await storeFrom(program).writePlan(missionId, options.actor, options.note);
+      console.log(`planned ${missionId}`);
+    });
+
+  program
+    .command("approve")
+    .description("Approve a gate")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--gate <gate>", "Gate id", "approve_plan")
+    .option("--reason <reason>", "Approval reason")
+    .action(
+      async (missionId: string, options: { actor: string; gate: string; reason?: string }) => {
+        await storeFrom(program).approve(missionId, options.actor, options.gate, options.reason);
+        console.log(`approved ${options.gate} for ${missionId}`);
+      },
+    );
+
+  program
+    .command("run")
+    .description("Record a V0 sequential implementation run")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "worker-agent")
+    .option("--note <note>", "Run note")
+    .action(async (missionId: string, options: { actor: string; note?: string }) => {
+      await storeFrom(program).recordRun(missionId, options.actor, options.note);
+      console.log(`recorded run for ${missionId}`);
+    });
+
+  program
+    .command("validate")
+    .description("Run validation commands")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "validator-agent")
+    .option("--cmd <command>", "Override validation command", collect, [])
+    .option("--allow-risky", "Allow validation commands flagged by the risky command policy")
+    .action(
+      async (
+        missionId: string,
+        options: { actor: string; cmd: string[]; allowRisky?: boolean },
+      ) => {
+        const result = await storeFrom(program).validate(missionId, options.actor, {
+          commands: options.cmd,
+          allowRisky: options.allowRisky,
+        });
+        process.exitCode = result.exitCode === 0 ? 0 : result.exitCode;
+      },
+    );
+
+  program
+    .command("status")
+    .description("Show mission status or list missions")
+    .argument("[mission-id]")
+    .action(async (missionId?: string) => {
+      const store = storeFrom(program);
+      if (missionId) {
+        const spec = await store.readMission(missionId);
+        console.log(`${spec.id} ${spec.status} - ${spec.goal}`);
+        return;
+      }
+      const ids = await store.listMissionIds();
+      if (ids.length === 0) {
+        console.log("No missions found.");
+        return;
+      }
+      for (const id of ids) {
+        const spec = await store.readMission(id);
+        console.log(`${spec.id} ${spec.status} - ${spec.goal}`);
+      }
+    });
+
+  program
+    .command("summary")
+    .description("Show a compact mission summary for human review")
+    .argument("<mission-id>")
+    .option("--json", "Print JSON")
+    .action(async (missionId: string, options: { json?: boolean }) => {
+      const summary = await storeFrom(program).summarizeMission(missionId);
+      if (options.json) {
+        console.log(JSON.stringify(summary, null, 2));
+        return;
+      }
+      console.log(`${summary.id} ${summary.status}`);
+      console.log(summary.goal);
+      console.log("");
+      console.log(`Validation commands: ${summary.validation_commands}`);
+      console.log(`Tasks: ${summary.tasks}`);
+      console.log(`Changes: ${summary.changes.total} total, ${summary.changes.pending} pending`);
+      console.log(`Checkpoints: ${summary.checkpoints}`);
+      console.log("");
+      console.log("Findings:");
+      for (const finding of summary.findings) {
+        console.log(`- ${finding.severity} ${finding.code}: ${finding.message}`);
+      }
+      console.log("");
+      console.log("Artifacts:");
+      for (const [name, path] of Object.entries(summary.artifacts)) {
+        console.log(`- ${name}: ${path}`);
+      }
+    });
+
+  program
+    .command("doctor")
+    .description("Diagnose mission health and next actions")
+    .argument("<mission-id>")
+    .option("--json", "Print JSON")
+    .action(async (missionId: string, options: { json?: boolean }) => {
+      const findings = await storeFrom(program).diagnoseMission(missionId);
+      const hasBlocking = findings.some((finding) => finding.severity === "blocking");
+      if (options.json) {
+        console.log(JSON.stringify(findings, null, 2));
+        if (hasBlocking) process.exitCode = 1;
+        return;
+      }
+      for (const finding of findings) {
+        console.log(`${finding.severity.toUpperCase()} ${finding.code}: ${finding.message}`);
+        console.log(`Next: ${finding.next}`);
+      }
+      if (hasBlocking) {
+        process.exitCode = 1;
+      }
+    });
+
+  const policy = program.command("policy").description("Manage project mission policy");
+
+  policy
+    .command("show")
+    .description("Show .missions/policy.yaml or the default policy")
+    .action(async () => {
+      console.log(YAML.stringify(await storeFrom(program).readPolicy()).trimEnd());
+    });
+
+  policy
+    .command("init")
+    .description("Write .missions/policy.yaml")
+    .option("--validation-allow <pattern>", "Allowed validation command pattern", collect, [])
+    .option(
+      "--redaction-pattern <pattern>",
+      "Regex pattern to redact from validation output",
+      collect,
+      [],
+    )
+    .action(async (options: { validationAllow: string[]; redactionPattern: string[] }) => {
+      const written = await storeFrom(program).writePolicy({
+        validation_allowlist: options.validationAllow,
+        redaction: { patterns: options.redactionPattern },
+      });
+      console.log(YAML.stringify(written).trimEnd());
+    });
+
+  program
+    .command("monitor")
+    .description("Generate a mission monitoring report")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "supervisor-agent")
+    .option("--json", "Print JSON without writing monitor.md")
+    .action(async (missionId: string, options: { actor: string; json?: boolean }) => {
+      const store = storeFrom(program);
+      if (options.json) {
+        console.log(JSON.stringify(await store.monitorMission(missionId), null, 2));
+        return;
+      }
+      console.log((await store.writeMonitor(missionId, options.actor)).trimEnd());
+    });
+
+  program
+    .command("tasks")
+    .description("List mission tasks")
+    .argument("<mission-id>")
+    .action(async (missionId: string) => {
+      const tasks = await storeFrom(program).listTasks(missionId);
+      for (const task of tasks) {
+        console.log(`${task.id} ${task.status} ${task.actor_role} - ${task.title}`);
+      }
+    });
+
+  const task = program.command("task").description("Manage mission task ledger");
+
+  task
+    .command("add")
+    .description("Add a task to the mission ledger without executing it")
+    .argument("<mission-id>")
+    .requiredOption("--title <title>", "Task title")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--actor-role <role>", "Responsible actor role", "worker-agent")
+    .option(
+      "--mutation-mode <mode>",
+      "sidecar_readonly | sidecar_artifact | linear_write",
+      "sidecar_artifact",
+    )
+    .option("--depends-on <task-id>", "Task dependency", collect, [])
+    .option("--scope-allow <pattern>", "Allowed scope pattern", collect, [])
+    .option("--scope-deny <pattern>", "Denied scope pattern", collect, [])
+    .option("--validation <command>", "Validation command", collect, [])
+    .action(async (missionId: string, options: TaskAddOptions) => {
+      const mutationMode = parseMutationMode(options.mutationMode);
+      const created = await storeFrom(program).addTask(missionId, {
+        actor: options.actor,
+        title: options.title,
+        actorRole: options.actorRole,
+        mutationMode,
+        dependsOn: options.dependsOn,
+        scopeAllow: options.scopeAllow,
+        scopeDeny: options.scopeDeny,
+        validation: options.validation,
+      });
+      console.log(`${created.id} ${created.status} ${created.mutation_mode} - ${created.title}`);
+    });
+
+  task
+    .command("set-status")
+    .description("Set task status")
+    .argument("<mission-id>")
+    .argument("<task-id>")
+    .requiredOption(
+      "--status <status>",
+      "pending | ready | running | needs_review | done | blocked | failed",
+    )
+    .option("--actor <actor>", "Actor id", "local-user")
+    .action(async (missionId: string, taskId: string, options: TaskSetStatusOptions) => {
+      const status = TaskStatusSchema.parse(options.status);
+      const updated = await storeFrom(program).setTaskStatus(
+        missionId,
+        taskId,
+        status,
+        options.actor,
+      );
+      console.log(`${updated.id} ${updated.status}`);
+    });
+
+  task
+    .command("audit-scope")
+    .description("Audit current git changes against one task scope")
+    .argument("<mission-id>")
+    .argument("<task-id>")
+    .option("--actor <actor>", "Actor id", "supervisor-agent")
+    .option("--json", "Print JSON")
+    .action(
+      async (missionId: string, taskId: string, options: { actor: string; json?: boolean }) => {
+        const result = await storeFrom(program).auditTaskScope(missionId, taskId, options.actor);
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        console.log(
+          `scope audit ${result.task}: ${result.changed_files.length} changed, ${result.violations.length} violation(s)`,
+        );
+        if (result.violations.length > 0) {
+          for (const violation of result.violations) {
+            console.log(`- ${violation.reason}: ${violation.file}`);
+          }
+        }
+      },
+    );
+
+  program
+    .command("diff")
+    .description("Capture current git diff into patch.diff")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--task <task-id>", "Capture only the patch inside one task scope")
+    .action(async (missionId: string, options: { actor: string; task?: string }) => {
+      const diff = await storeFrom(program).captureDiff(missionId, options.actor, {
+        taskId: options.task,
+      });
+      console.log(`captured patch.diff (${Buffer.byteLength(diff)} bytes)`);
+    });
+
+  const checkpoint = program
+    .command("checkpoint")
+    .description("Manage non-destructive checkpoints");
+
+  checkpoint
+    .command("create")
+    .description("Capture current git diff as a checkpoint")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--label <label>", "Checkpoint label", "manual checkpoint")
+    .option("--task <task-id>", "Capture only the patch inside one task scope")
+    .action(async (missionId: string, options: { actor: string; label: string; task?: string }) => {
+      const created = await storeFrom(program).createCheckpoint(
+        missionId,
+        options.actor,
+        options.label,
+        { taskId: options.task },
+      );
+      console.log(`${created.id} ${created.base_ref} - ${created.label}`);
+    });
+
+  checkpoint
+    .command("list")
+    .description("List mission checkpoints")
+    .argument("<mission-id>")
+    .action(async (missionId: string) => {
+      const checkpoints = await storeFrom(program).listCheckpoints(missionId);
+      for (const checkpoint of checkpoints) {
+        console.log(
+          `${checkpoint.id} ${checkpoint.base_ref} ${checkpoint.created_at} - ${checkpoint.label}`,
+        );
+      }
+    });
+
+  const branch = program.command("branch").description("Manage mission git branches");
+
+  branch
+    .command("create")
+    .description("Create a mission branch without checking it out")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--name <branch>", "Branch name override")
+    .action(async (missionId: string, options: { actor: string; name?: string }) => {
+      const isolation = await storeFrom(program).createBranch(missionId, {
+        actor: options.actor,
+        branch: options.name,
+      });
+      console.log(`branch ${isolation.branch}`);
+    });
+
+  const worktree = program.command("worktree").description("Manage mission git worktrees");
+
+  worktree
+    .command("create")
+    .description("Create a mission worktree at an explicit path")
+    .argument("<mission-id>")
+    .requiredOption("--path <path>", "Worktree path")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--branch <branch>", "Branch name override")
+    .action(
+      async (missionId: string, options: { path: string; actor: string; branch?: string }) => {
+        const isolation = await storeFrom(program).createWorktree(missionId, {
+          actor: options.actor,
+          path: options.path,
+          branch: options.branch,
+        });
+        console.log(`worktree ${isolation.branch} ${isolation.worktree_path}`);
+      },
+    );
+
+  program
+    .command("rollback-plan")
+    .description("Generate a non-destructive rollback plan")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--checkpoint <checkpoint-id>", "Checkpoint id")
+    .action(async (missionId: string, options: { actor: string; checkpoint?: string }) => {
+      await storeFrom(program).writeRollbackPlan(missionId, options.actor, options.checkpoint);
+      console.log(`rollback-plan.md written for ${missionId}`);
+    });
+
+  program
+    .command("rollback-check")
+    .description("Check whether a checkpoint patch can be reversed cleanly")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--checkpoint <checkpoint-id>", "Checkpoint id")
+    .action(async (missionId: string, options: { actor: string; checkpoint?: string }) => {
+      const result = await storeFrom(program).checkRollback(
+        missionId,
+        options.actor,
+        options.checkpoint,
+      );
+      console.log(result.message);
+      if (!result.ok) process.exitCode = 1;
+    });
+
+  const change = program.command("change").description("Manage controlled change proposals");
+
+  change
+    .command("propose")
+    .description("Propose a controlled mission change")
+    .argument("<mission-id>")
+    .requiredOption("--reason <reason>", "Reason for the change")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--source <kind>", "human | agent | validation | review | system", "human")
+    .option("--type <type>", "Change type", "workflow")
+    .option("--risk <risk>", "low | medium | high", "medium")
+    .option("--affected <item>", "Affected artifact, scope, or area", collect, [])
+    .option("--option <option>", "Decision option", collect, [])
+    .option("--recommendation <recommendation>", "Recommended option")
+    .option("--gate <gate>", "Required gate override")
+    .action(async (missionId: string, options: ChangeProposeOptions) => {
+      const type = ChangeTypeSchema.parse(options.type);
+      const risk = parseRisk(options.risk);
+      const sourceKind = parseSourceKind(options.source);
+      const proposal = await storeFrom(program).proposeChange(missionId, {
+        actor: options.actor,
+        sourceKind,
+        type,
+        risk,
+        reason: options.reason,
+        affected: options.affected,
+        options: options.option,
+        recommendation: options.recommendation,
+        requiresGate: options.gate,
+      });
+      console.log(`${proposal.id} proposed (${proposal.type}, ${proposal.risk})`);
+    });
+
+  change
+    .command("list")
+    .description("List mission change proposals")
+    .argument("<mission-id>")
+    .action(async (missionId: string) => {
+      const changes = await storeFrom(program).listChanges(missionId);
+      for (const proposal of changes) {
+        console.log(
+          `${proposal.id} ${proposal.status} ${proposal.type} ${proposal.risk} - ${proposal.reason}`,
+        );
+      }
+    });
+
+  change
+    .command("show")
+    .description("Show one change proposal")
+    .argument("<mission-id>")
+    .argument("<change-id>")
+    .action(async (missionId: string, changeId: string) => {
+      const proposal = await storeFrom(program).readChange(missionId, changeId);
+      console.log(YAML.stringify(proposal).trimEnd());
+    });
+
+  change
+    .command("apply")
+    .description("Apply an approved change to mission.yaml")
+    .argument("<mission-id>")
+    .argument("<change-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--acceptance <item>", "Append acceptance criterion", collect, [])
+    .option("--validation <command>", "Append validation command", collect, [])
+    .option("--workflow-step <step>", "Append workflow step", collect, [])
+    .option("--plan-note <note>", "Append controlled note to plan.md", collect, [])
+    .option("--note <note>", "Application note")
+    .action(async (missionId: string, changeId: string, options: ChangeApplyOptions) => {
+      const result = await storeFrom(program).applyChange(missionId, changeId, {
+        actor: options.actor,
+        acceptance: options.acceptance,
+        validationCommands: options.validation,
+        workflowSteps: options.workflowStep,
+        planNotes: options.planNote,
+        note: options.note,
+      });
+      console.log(
+        `${result.change.id} applied (acceptance +${result.added.acceptance.length}, validation +${result.added.validation_commands.length}, workflow +${result.added.workflow.length}, plan +${result.added.plan_notes.length})`,
+      );
+    });
+
+  for (const status of ["approve", "reject", "defer", "split"] as const) {
+    const storedStatus =
+      status === "approve"
+        ? "approved"
+        : status === "reject"
+          ? "rejected"
+          : status === "defer"
+            ? "deferred"
+            : status;
+    change
+      .command(status)
+      .description(`${status} a change proposal`)
+      .argument("<mission-id>")
+      .argument("<change-id>")
+      .option("--actor <actor>", "Actor id", "local-user")
+      .option("--reason <reason>", "Decision reason")
+      .action(async (missionId: string, changeId: string, options: ChangeDecisionOptions) => {
+        const proposal = await storeFrom(program).decideChange(
+          missionId,
+          changeId,
+          storedStatus,
+          options.actor,
+          options.reason,
+        );
+        console.log(`${proposal.id} ${proposal.status}`);
+      });
+  }
+
+  program
+    .command("trace")
+    .description("Show mission event timeline")
+    .argument("<mission-id>")
+    .action(async (missionId: string) => {
+      const events = await storeFrom(program).readEvents(missionId);
+      for (const event of events) {
+        const details = ["from", "to", "gate", "artifact", "reason", "exit_code"]
+          .filter((key) => event[key] !== undefined && event[key] !== "")
+          .map((key) => `${key}=${String(event[key])}`)
+          .join(" ");
+        console.log(
+          `${event.time} ${event.type} actor=${event.actor}${details ? ` ${details}` : ""}`,
+        );
+      }
+    });
+
+  program
+    .command("logs")
+    .description("Show validation and tool-call logs")
+    .argument("<mission-id>")
+    .action(async (missionId: string) => {
+      const paths = storeFrom(program).paths(missionId);
+      console.log(await readFile(paths.validationLog, "utf8").catch(() => ""));
+      const toolCalls = await readFile(paths.toolCalls, "utf8").catch(() => "");
+      if (toolCalls.trim().length > 0) {
+        console.log("# Tool Calls\n");
+        console.log(toolCalls.trimEnd());
+      }
+    });
+
+  program
+    .command("debug")
+    .description("Generate and show debug artifact")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--reason <reason>", "Debug reason")
+    .action(async (missionId: string, options: { actor: string; reason?: string }) => {
+      const store = storeFrom(program);
+      await store.writeDebug(missionId, options.actor, options.reason);
+      console.log((await readFile(store.paths(missionId).debug, "utf8")).trimEnd());
+    });
+
+  const review = program.command("review").description("Manage review artifacts");
+
+  review
+    .command("create")
+    .description("Create a review artifact from current mission evidence")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "reviewer-agent")
+    .action(async (missionId: string, options: { actor: string }) => {
+      await storeFrom(program).writeReview(missionId, options.actor);
+      console.log(`review.md written for ${missionId}`);
+    });
+
+  program
+    .command("inspect")
+    .description("Inspect one JSONL record")
+    .argument("<mission-id>")
+    .argument("<stream>", "events | telemetry | tool-calls | supervisor")
+    .argument("<selector>", "Zero-based record index or stable record id")
+    .action(async (missionId: string, stream: string, selector: string) => {
+      const store = storeFrom(program);
+      const records: Array<Record<string, unknown>> | undefined =
+        stream === "events"
+          ? await store.readEvents(missionId)
+          : stream === "telemetry"
+            ? await store.readTelemetry(missionId)
+            : stream === "tool-calls"
+              ? await store.readToolCalls(missionId)
+              : stream === "supervisor"
+                ? await store.readSupervisorSignals(missionId)
+                : undefined;
+      if (!records) throw new Error(`unknown inspect stream: ${stream}`);
+      const byId = records.find((record) => record.record_id === selector);
+      if (byId) {
+        console.log(JSON.stringify(byId, null, 2));
+        return;
+      }
+
+      const parsedIndex = Number.parseInt(selector, 10);
+      if (!Number.isInteger(parsedIndex) || parsedIndex < 0 || parsedIndex >= records.length) {
+        if (Number.isNaN(parsedIndex)) {
+          throw new Error(`${stream} record id not found: ${selector}`);
+        }
+        throw new Error(`${stream} index out of range: ${selector}`);
+      }
+      console.log(JSON.stringify(records[parsedIndex], null, 2));
+    });
+
+  program
+    .command("handoff")
+    .description("Generate handoff artifact")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "handoff-agent")
+    .option("--no-complete", "Do not complete validated mission")
+    .action(async (missionId: string, options: { actor: string; complete?: boolean }) => {
+      await storeFrom(program).writeHandoff(missionId, options.actor, options.complete !== false);
+      console.log(`handoff written for ${missionId}`);
+    });
+
+  await program.parseAsync(argv, { from: "user" });
+}
+
+function collect(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
+}
+
+function storeFrom(program: Command): MissionStore {
+  const options = program.opts<GlobalOptions>();
+  return new MissionStore(options.repo);
+}
+
+type NewOptions = {
+  id?: string;
+  actor: string;
+  acceptance: string[];
+  validation: string[];
+};
+
+type ChangeProposeOptions = {
+  reason: string;
+  actor: string;
+  source: string;
+  type: string;
+  risk: string;
+  affected: string[];
+  option: string[];
+  recommendation?: string;
+  gate?: string;
+};
+
+type ChangeDecisionOptions = {
+  actor: string;
+  reason?: string;
+};
+
+type ChangeApplyOptions = {
+  actor: string;
+  acceptance: string[];
+  validation: string[];
+  workflowStep: string[];
+  planNote: string[];
+  note?: string;
+};
+
+type TaskAddOptions = {
+  title: string;
+  actor: string;
+  actorRole: string;
+  mutationMode: string;
+  dependsOn: string[];
+  scopeAllow: string[];
+  scopeDeny: string[];
+  validation: string[];
+};
+
+type TaskSetStatusOptions = {
+  status: string;
+  actor: string;
+};
+
+function parseMutationMode(
+  value: string,
+): "sidecar_readonly" | "sidecar_artifact" | "linear_write" {
+  if (value === "sidecar_readonly" || value === "sidecar_artifact" || value === "linear_write") {
+    return value;
+  }
+  throw new Error(`invalid mutation mode: ${value}`);
+}
+
+function parseRisk(value: string): "low" | "medium" | "high" {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  throw new Error(`invalid risk: ${value}`);
+}
+
+function parseSourceKind(value: string): "human" | "agent" | "validation" | "review" | "system" {
+  if (
+    value === "human" ||
+    value === "agent" ||
+    value === "validation" ||
+    value === "review" ||
+    value === "system"
+  ) {
+    return value;
+  }
+  throw new Error(`invalid source kind: ${value}`);
+}
+
+if (import.meta.main) {
+  runCli().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`mission: ${message}`);
+    process.exitCode = 1;
+  });
+}

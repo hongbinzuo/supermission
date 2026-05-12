@@ -1,11 +1,10 @@
-.superpowers/
-.pycache/
-__pycache__/
-node_modules/
 dist/
+node_modules/
 .missions/
+.superpowers/
+.stryker-tmp/
 coverage/
 playwright-report/
 test-results/
-.stryker-tmp/
 reports/
+bun.lock

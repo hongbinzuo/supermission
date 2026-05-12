@@ -70,20 +70,25 @@ AI 可以加速实现，但不能替代这些工程约束。没有工程约束�
 - 难回退：AI 可能改动范围过大，缺少和 mission 绑定的 branch、worktree、patch 和验证记录。
 - 难交接：换人、换 agent 或隔天恢复时，需要重新解释上下文。
 - 难复用：bugfix、refactor、test writing、review 等工作流每次都重新 prompt。
+- 难监控：多个 agent、多个工具调用和长时间任务并行运行时，很难知道系统是否健康。
+- 难调试：agent 为什么卡住、为什么改错文件、为什么验证失败，缺少可复现的调试证据。
+- 难并行：20-30 个 agent 同时工作听起来很强，但没有任务颗粒度、隔离、调度、合并和监督机制就会迅速混乱。
 
 Mission Control 的机会是把这些问题产品化，而不是继续堆叠更多 chat 能力。
 
 ## 5. 核心解法映射
 
-| 问题 | 解法 |
-| --- | --- |
-| 不确定性高 | Mission Spec、acceptance criteria、scope allow/deny |
-| 难追溯 | append-only events、decisions、artifacts |
-| 难管理 | state machine、milestones、human gates |
-| 难可视化 | Terminal TUI、mission board、dashboard from records |
-| 难回退 | git branch/worktree、patch snapshots、validation logs |
-| 难交接 | handoff.md、structured actor/event history |
-| 难复用 | skills、workflow templates |
+| 问题         | 解法                                                       |
+| ------------ | ---------------------------------------------------------- |
+| 不确定性高   | Mission Spec、acceptance criteria、scope allow/deny        |
+| 难追溯       | append-only events、decisions、artifacts                   |
+| 难管理       | state machine、milestones、human gates                     |
+| 难可视化     | Terminal TUI、mission board、dashboard from records        |
+| 难回退       | git branch/worktree、patch snapshots、validation logs      |
+| 难交接       | handoff.md、structured actor/event history                 |
+| 难复用       | skills、workflow templates                                 |
+| 难监控和调试 | mission trace、tool call log、telemetry、debug artifacts   |
+| 难并行       | sub-missions、task ledger、worktree isolation、merge queue |
 
 早期产品的重点不是做复杂协作系统，而是先把 mission record 的结构设计对。
 
@@ -200,6 +205,9 @@ Artifact 是 mission 的可审计产物。
 - review.md
 - patch.diff
 - handoff.md
+- telemetry.jsonl
+- tool-calls.jsonl
+- debug.md
 
 ### 8.5 Actor
 
@@ -246,8 +254,14 @@ V0/V1 应使用 Git 管理的文件作为 mission record。
     plan.md
     validation.log
     review.md
+    monitor.md
+    scope-audit.md
     patch.diff
     handoff.md
+    telemetry.jsonl
+    tool-calls.jsonl
+    supervisor-signals.jsonl
+    debug.md
 ```
 
 其中：
@@ -258,8 +272,14 @@ V0/V1 应使用 Git 管理的文件作为 mission record。
 - `plan.md` 是执行计划。
 - `validation.log` 保存验证命令输出。
 - `review.md` 保存 review 记录。
+- `monitor.md` 保存当前健康度、下一步、active tasks、pending changes 和 recent signals。
+- `scope-audit.md` 保存 task scope allow/deny 与当前 git changes 的审计结果。
 - `patch.diff` 保存当前 diff snapshot。
 - `handoff.md` 支持换人、换 agent 和隔天恢复。
+- `telemetry.jsonl` 保存 mission 运行指标。
+- `tool-calls.jsonl` 保存 agent 工具调用记录。
+- `supervisor-signals.jsonl` 保存监控规则发现的异常、阻塞和风险信号。
+- `debug.md` 保存失败分析、上下文摘要和调试结论。
 
 早期不引入数据库。
 
@@ -304,6 +324,11 @@ mission approve
 mission run
 mission validate
 mission status
+mission doctor
+mission monitor
+mission trace
+mission logs
+mission debug
 mission handoff
 ```
 
@@ -428,6 +453,7 @@ Local Mission Engine
         +-- Agent Runner
         +-- Gate Manager
         +-- Validation Runner
+        +-- Observability / Debug Trace
         +-- Git / Worktree Manager
         +-- Artifact Store
         |
@@ -446,7 +472,441 @@ Repo / Tests / Git / PR
 - Git 负责历史、分支、diff 和回退。
 - database 只在后续作为索引层出现。
 
-## 16. Controlled Change Loop
+## 16. Observability and Debuggability
+
+监控和调试不能是后加的 dashboard，而应该是 mission record 的一部分。
+
+Gas Town 和 Ruflo 都证明了一个趋势：当多个 agent、多个工具调用、多个工作目录同时运行时，用户真正关心的不只是“agent 说了什么”，而是：
+
+- 任务现在处于什么状态。
+- 哪个 actor 正在工作。
+- agent 调用了什么工具。
+- 哪些文件被修改。
+- 验证为什么失败。
+- 是否出现重复失败、卡住、越界修改。
+- 下一步需要人做什么判断。
+- 是否能回退或交接。
+
+核心原则：
+
+```text
+AI coding observability is not chat replay. It is mission state, tool calls, validation evidence, and rollback path.
+```
+
+中文：
+
+```text
+AI coding 的可观测性不是回放聊天，而是任务状态、工具调用、验证证据和回退路径。
+```
+
+### 16.1 Mission-level Monitoring
+
+Mission 级监控回答：
+
+```text
+这个任务现在健康吗？
+```
+
+V0/V1 至少记录：
+
+- mission status
+- current actor
+- current workflow step
+- pending gate
+- validation status
+- latest failure
+- files changed count
+- diff size
+- command runtime
+- repeated failure count
+- last event time
+- handoff freshness
+
+落盘位置：
+
+```text
+.missions/mission-001/
+  events.jsonl
+  telemetry.jsonl
+  monitor.md
+  supervisor-signals.jsonl
+  validation.log
+  debug.md
+```
+
+`events.jsonl` 记录工程事实，`telemetry.jsonl` 记录运行指标。两者都 append-only，但职责不同：
+
+- event 是“发生了什么”。
+- telemetry 是“运行得怎么样”。
+
+### 16.2 Agent-level Debugging
+
+Agent 级调试回答：
+
+```text
+agent 为什么这么做，哪里错了？
+```
+
+不保存完整 chain-of-thought，但必须保存可调试证据：
+
+- agent 输入摘要。
+- 使用了哪些上下文文件。
+- 检索命中了哪些 memory / RAG 结果。
+- 调用了哪些工具。
+- 工具调用参数和退出状态。
+- stdout/stderr 摘要或完整日志。
+- 修改了哪些文件。
+- validation 为什么失败。
+- 是否提出 change proposal。
+- 人在哪里批准或拒绝。
+
+落盘位置：
+
+```text
+.missions/mission-001/
+  tool-calls.jsonl
+  debug.md
+  validation.log
+```
+
+调试链路：
+
+```text
+agent run -> context used -> tool calls -> file changes -> validation -> decision
+```
+
+### 16.3 CLI Debug Commands
+
+V0/V1 命令：
+
+```text
+mission monitor
+mission trace
+mission logs
+mission debug
+mission inspect
+```
+
+含义：
+
+- `mission monitor`：展示当前健康度、active tasks、pending changes、supervisor signals 和下一步。
+- `mission trace`：按时间线展示关键事件。
+- `mission logs`：展示 validation 和 tool call log。
+- `mission debug`：生成或打开失败分析。
+- `mission inspect`：查看某个 event、tool call、change 或 validation failure。
+
+V0/V0.1 已实现这些基础命令；后续重点是把同一数据结构接入 TUI 和 runner adapter。
+
+### 16.4 TUI Debug Views
+
+TUI 不应该只是 mission list。它至少需要这些 tab：
+
+```text
+Overview | Timeline | Plan | Diff | Validation | Tool Calls | Debug | Handoff
+```
+
+对长任务和多 agent 任务，最重要的是 `Timeline`、`Tool Calls` 和 `Validation`。它们决定用户能不能理解 agent 的行为，而不是只能相信 agent 的总结。
+
+### 16.5 UI / UX Review Gate
+
+一旦进入 TUI、Web dashboard、VS Code/Cursor view 或任何前端界面，必须加入专业 UI/UX review gate。
+
+前端体验不能只验收“功能能用”，还必须审核：
+
+- 信息层级是否清楚。
+- mission status、pending gate、validation、diff、handoff 是否能快速扫读。
+- 长任务和多 agent 状态是否可理解。
+- loading、empty、failed、blocked、needs_decision 等状态是否完整。
+- 是否有足够密度，但不拥挤。
+- 是否能支持重复、高频、工程化使用。
+- 是否通过截图或浏览器实际运行检查。
+
+UI/UX 相关变更必须附带：
+
+- screenshot 或 terminal capture。
+- interaction path。
+- responsive / small viewport 检查。
+- error state 检查。
+- reviewer note。
+
+### 16.6 Failure Detection
+
+V1 开始应支持基础异常检测：
+
+- stuck：长时间没有新 event。
+- repeated_failure：同一 validation command 多次失败。
+- scope_drift：修改文件超出 scope allow。
+- gate_waiting：等待人工批准。
+- merge_conflict：并行 worker 产物无法合并。
+- validation_missing：没有验证命令。
+- handoff_stale：handoff 早于最近一次重要变更。
+
+这些异常不一定自动修复，但必须可见，并进入 `debug.md` 或 `events.jsonl`。
+
+### 16.7 TBD / Needs Review
+
+- telemetry schema 是否需要 OpenTelemetry 兼容。
+- tool call log 是否保存完整 stdout/stderr，还是只保存摘要并链接到 log artifact。
+- 是否需要默认 redact secrets。
+- agent context used 是否记录文件路径即可，还是要保存 content hash。
+- 长期是否引入 SQLite 作为 trace index。
+- UI/UX review gate 是否作为 `approve_ui_change`，还是并入 `approve_diff`。
+
+## 17. Multi-Agent Orchestration
+
+Gas Town 和 Ruflo 都说明多 agent 编排有真实需求，但 Mission Control 的策略不能从“大规模 swarm”开始。
+
+多 agent 的问题不是能不能启动 20-30 个 agent，而是：
+
+- 如何拆任务。
+- 如何分配责任。
+- 如何隔离工作目录。
+- 如何共享状态。
+- 如何合并结果。
+- 如何监控卡住和失败。
+- 如何回退。
+- 如何让人审查关键判断。
+
+Mission Control 应吸收多 agent 系统的设计经验，但第一性原理仍然是 mission record。
+
+实现策略：
+
+```text
+orchestration-ready records, simple execution first
+```
+
+中文：
+
+```text
+记录结构先为编排做好准备，执行层先保持简单。
+```
+
+也就是说，V0 就应该有 actor、task、tool-call、trace、supervisor signal 这些字段和 artifact；但 V0 默认只跑顺序 workflow，不急着启动多个真实 agent 并行。
+
+Factory 的经验也支持这个判断：早期最重要的是让变更线性、可审查、可验证。并行变更一旦过早打开，会让 scope、diff、validation 和 rollback 都变得难以控制。
+
+因此 V0/V1 默认原则是：
+
+```text
+linear mutation first, parallelism later
+```
+
+中文：
+
+```text
+先做线性变更，再做并行能力。
+```
+
+多 agent 可以存在为 planner、worker、validator、reviewer、handoff 等角色，但同一时间只能有一个 active code mutation。并行可以用于旁路任务，例如只读 research、竞品调研、文档草稿、测试计划、review、risk analysis、log analysis、validation analysis。这些任务产出 artifact，再回到线性变更主线。
+
+原则：
+
+```text
+parallel sidecars, linear mutations
+```
+
+中文：
+
+```text
+旁路任务可以并行，代码变更保持线性。
+```
+
+任何并行任务如果需要修改代码、schema、环境、依赖或 release 配置，必须先转成 change proposal，进入 gate，而不是继续旁路执行。
+
+### 17.1 Gas Town 的启发
+
+Gas Town 的关键启发：
+
+- Mayor：需要一个 coordinator/supervisor 角色负责全局状态和任务分配。
+- Worker agents：具体任务应由有限责任的 agent 执行。
+- Hooks / worktrees：每个 worker 的工作状态需要隔离和持久化。
+- Beads：任务应拆成可追踪、可依赖、可完成的颗粒。
+- Convoys：大型任务需要聚合多个子任务。
+- Witness / Deacon / Auditor：多 agent 系统需要监督、恢复和审计角色。
+- Git-backed state：版本控制、回滚和共享状态是 AI 工程任务的天然基础设施。
+
+对 Mission Control 的转化：
+
+| Gas Town 概念   | Mission Control 借鉴               |
+| --------------- | ---------------------------------- |
+| Mayor           | supervisor-agent / coordinator     |
+| Polecat workers | worker-agent with bounded scope    |
+| Hooks           | branch/worktree isolation          |
+| Beads           | sub-missions / tasks               |
+| Convoys         | parent mission with child missions |
+| Witness         | monitor / stuck detector           |
+| Deacon          | recovery / retry coordinator       |
+| Auditor         | reviewer / validator               |
+| Git as database | Git-backed mission record          |
+
+但 Mission Control 不直接复制 Gas Town。Gas Town 更偏多 agent 工作系统实验；Mission Control 要先定义可移植的工程控制记录层。
+
+### 17.2 Ruflo 的启发
+
+Ruflo 的关键启发：
+
+- Claude Code / Codex 之上确实存在 agent 调度层需求。
+- agent definitions、commands、hooks、MCP、memory 可以插件化。
+- coding、testing、security、docs、review、architecture 是合理的 agent role。
+- memory / RAG 对长期项目理解有价值。
+- 高 Star 和能力声明不等于生产可信。
+
+对 Mission Control 的转化：
+
+| Ruflo 能力        | Mission Control 借鉴                    |
+| ----------------- | --------------------------------------- |
+| Claude Code 集成  | Claude Code / Codex 作为 runner         |
+| Agent definitions | 少量内置 actor roles                    |
+| Slash commands    | `mission new/plan/run/validate/handoff` |
+| Hooks             | mission event hooks                     |
+| Memory/RAG        | 先从 `.missions/` 历史检索开始          |
+| Swarm             | V1 只做小规模可调试 workflow            |
+| Plugins           | 先做 workflow modules                   |
+
+核心判断：
+
+```text
+Ruflo proves that Claude Code needs orchestration. Mission Control should prove that AI coding needs engineering control.
+```
+
+中文：
+
+```text
+Ruflo 证明 Claude Code 需要调度层；Mission Control 要证明 AI coding 需要工程控制层。
+```
+
+### 17.3 V1 Agent Roles
+
+V1 默认只内置少量角色：
+
+- `planner-agent`
+- `worker-agent`
+- `validator-agent`
+- `reviewer-agent`
+- `handoff-agent`
+- `supervisor-agent`
+
+每个 agent 都必须有：
+
+- actor id
+- role
+- allowed scope
+- input artifact
+- output artifact
+- tool permissions
+- validation responsibility
+
+V1 不追求 20-30 个 agent 同时运行。默认流程：
+
+```text
+planner -> worker -> validator -> reviewer -> handoff
+```
+
+可选并行：
+
+```text
+worker-code + worker-tests -> validator -> reviewer
+```
+
+这个可选并行不进入 V1 默认路径，只作为后续实验。V0/V1 可以先把这些角色写入 `mission.yaml` 和 `events.jsonl`，但实际执行仍由一个 CLI process 或外部 agent 按线性 workflow 完成。
+
+### 17.4 Task Granularity
+
+多 agent 并行的前提是任务颗粒度正确。
+
+一个可并行 task 应满足：
+
+- 有明确 goal。
+- 有明确 acceptance。
+- 有明确 affected scope。
+- 有独立 validation。
+- 与其他 task 的依赖关系清楚。
+- 失败后可以重试或拆分。
+- 输出可以合并或审核。
+
+V1 可以使用：
+
+```text
+.missions/mission-001/tasks/task-001.yaml
+```
+
+V0 可以先生成 `tasks/` 目录和默认 task ledger，但不做复杂调度。
+
+任务应区分：
+
+- `sidecar_readonly`：旁路只读任务，可以并行。
+- `sidecar_artifact`：旁路产物任务，例如测试计划、研究总结、文档草稿，可以并行但只写 mission artifacts。
+- `linear_write`：代码或配置变更任务，必须进入线性主线。
+
+调度约束：
+
+- 同一 mission 同一时间只允许一个 `linear_write` task 处于 `running`。
+- `sidecar_readonly` 和 `sidecar_artifact` 可以并行，但不能修改代码、schema、环境或 release 配置。
+- pending task 只有在依赖任务全部 `done` 后才进入 `ready`。
+- 如果 agent 需要扩大 scope 或从旁路任务转成写入任务，必须提出 change proposal。
+
+示例：
+
+```yaml
+id: task-001
+status: pending
+actor_role: worker-agent
+goal: "Add auth input validation tests"
+depends_on:
+  - task-000
+scope:
+  allow:
+    - tests/auth/**
+validation:
+  - npm test -- auth
+```
+
+### 17.5 Scheduling and Merge Queue
+
+并行 agent 不能直接把结果混在一起。
+
+V1 应使用保守的调度和合并策略：
+
+```text
+ready task -> isolated worktree -> worker run -> validation -> merge queue -> review -> integrate
+```
+
+原则：
+
+- 每个 worker 使用独立 branch 或 worktree。
+- worker 只能修改自己的 scope。
+- 产物进入 merge queue。
+- merge 前必须有 validation evidence。
+- merge conflict 进入 `needs_decision`。
+- supervisor 负责检测卡住、重复失败和 scope drift。
+
+在 merge queue 完成之前，不开放多个写入型 worker 同时修改代码。
+
+### 17.6 Memory and Context
+
+V0/V1 的 memory 不应先做黑盒向量库。
+
+优先使用 repo-native artifacts：
+
+- previous `mission.yaml`
+- `decisions.md`
+- `events.jsonl`
+- `validation.log`
+- `review.md`
+- `handoff.md`
+
+后续再引入 SQLite 或 vector index，但 source of truth 仍然是文件。
+
+### 17.7 TBD / Needs Review
+
+- V1 task ledger 是否命名为 `tasks/`、`beads/` 还是 `submissions/`。
+- supervisor-agent 是真实 agent，还是 engine 内置规则。
+- 并行 worker 的默认上限：2、3 还是项目配置。
+- 是否允许 agent 自动 spawn child mission。
+- Claude Code / Codex runner 的权限边界如何统一。
+- Git worktree 是否在 V1 默认开启。
+
+## 18. Controlled Change Loop
 
 Mission 不能假设初始 spec 永远正确。
 
@@ -480,7 +940,7 @@ Mission Control 必须支持有纪律的变更，而不是假装需求从一开�
 change.proposed -> needs_decision -> approve/reject/defer/split -> spec/plan update -> resume
 ```
 
-### 16.1 触发场景
+### 18.1 触发场景
 
 以下情况都可以触发变更提案：
 
@@ -492,7 +952,7 @@ change.proposed -> needs_decision -> approve/reject/defer/split -> spec/plan upd
 - review comment 指出了新风险。
 - 当前任务应该拆出子 mission。
 
-### 16.2 状态机扩展
+### 18.2 状态机扩展
 
 V0 状态机应加入 `needs_decision`：
 
@@ -519,7 +979,7 @@ running -> needs_decision
 
 除非变更只是低风险的记录性补充，否则 agent 不能继续静默扩大 scope 或改变 acceptance criteria。
 
-### 16.3 Change Proposal
+### 18.3 Change Proposal
 
 变更提案应落盘为结构化文件：
 
@@ -557,7 +1017,7 @@ created_at: "2026-05-11T00:00:00Z"
 {"type":"mission.state.changed","from":"running","to":"needs_decision"}
 ```
 
-### 16.4 Change Gates
+### 18.4 Change Gates
 
 新增 gates：
 
@@ -572,13 +1032,13 @@ created_at: "2026-05-11T00:00:00Z"
 
 这些 gates 的意义不是制造流程负担，而是防止 agent 在用户没有意识到的情况下改变任务本质。
 
-## 17. Change Entry Points
+## 19. Change Entry Points
 
 变更入口应该是多入口、同一管线。
 
 聊天可以触发变更，但变更不能停留在聊天里。人类、当前 agent、另一个 agent、reviewer、validation runner 都可以提出变更，但最终都必须变成结构化 change proposal。
 
-### 17.1 CLI 入口
+### 19.1 CLI 入口
 
 给人和脚本使用：
 
@@ -597,7 +1057,7 @@ mission change split change-003
 mission amend
 ```
 
-### 17.2 TUI 入口
+### 19.2 TUI 入口
 
 Terminal TUI 中应固定展示 `Changes` 区域：
 
@@ -619,7 +1079,7 @@ Actions:
 
 这是最适合人的变更入口。
 
-### 17.3 Agent Tool 入口
+### 19.3 Agent Tool 入口
 
 agent 不应靠聊天暗示变更，而应调用结构化工具：
 
@@ -636,7 +1096,7 @@ agent 不应靠聊天暗示变更，而应调用结构化工具：
 
 agent 一旦调用这个工具，engine 自动进入 `needs_decision`。
 
-### 17.4 Review 入口
+### 19.4 Review 入口
 
 reviewer 可以通过 `review.md` 或后续 GitHub PR comment 提出变更：
 
@@ -649,7 +1109,7 @@ recommendation: add acceptance criterion
 
 GitHub integration 后续可以把 PR comment 转换成 `change.proposed`。
 
-### 17.5 Validation 入口
+### 19.5 Validation 入口
 
 validation runner 可以提出 `change.suggested`，但不能自动修改 spec：
 
@@ -659,17 +1119,17 @@ validation.failed -> change.suggested -> needs_decision
 
 这适合处理测试失败揭示原验收标准不完整的情况。
 
-### 17.6 Handoff / Resume 入口
+### 19.6 Handoff / Resume 入口
 
 换 agent 或隔天恢复时，新 agent 可以先做 mission review。如果发现上下文缺口，也可以提出 change proposal。
 
 这让“接手时发现需求不清楚”变成正式流程，而不是重新开一段混乱聊天。
 
-## 18. Traceability and Rollback
+## 20. Traceability and Rollback
 
 可追踪和可回退是 Mission Control 的核心用户价值。
 
-### 18.1 可追踪如何实现
+### 20.1 可追踪如何实现
 
 可追踪不是保存完整聊天，而是保存结构化工程事件。
 
@@ -730,7 +1190,7 @@ Approved by:
   hongbin at 10:45
 ```
 
-### 18.2 代码回退
+### 20.2 代码回退
 
 代码回退依赖 Git 隔离分支、checkpoint 和 patch snapshot。
 
@@ -780,7 +1240,7 @@ mission rollback checkpoint-002
 3. 写入 rollback event。
 4. 将 mission 状态设为 `needs_decision` 或 `running`。
 
-### 18.3 环境变更回退
+### 20.3 环境变更回退
 
 环境变更包括：
 
@@ -818,7 +1278,7 @@ Rollback:
 [Approve] [Reject] [Edit rollback plan]
 ```
 
-### 18.4 数据库和 Schema 回退
+### 20.4 数据库和 Schema 回退
 
 数据库/schema 变更必须比普通代码更严格。
 
@@ -854,7 +1314,7 @@ approve_destructive_change
 
 V0/V1 默认不允许 agent 自动执行 destructive schema change。agent 可以生成计划和 rollback strategy，但最终执行必须由人确认。
 
-### 18.5 架构变更回退
+### 20.5 架构变更回退
 
 删除框架组件、替换 ORM、重构 routing、移除大型依赖，都应登记为 architecture change。
 
@@ -883,7 +1343,7 @@ requires_gate: approve_architecture_change
 3. 写 rollback strategy。
 4. 明确 validation commands。
 
-### 18.6 高风险变更原则
+### 20.6 高风险变更原则
 
 任何非代码变更，在执行前必须有回退计划：
 
@@ -905,7 +1365,7 @@ This change has no safe automatic rollback.
 
 并要求人工确认或拆成独立 mission。
 
-## 19. Change Taxonomy and Profiles
+## 21. Change Taxonomy and Profiles
 
 变更分类有价值，但不能在 V0 做成庞大流程。
 
@@ -923,7 +1383,7 @@ Simple by default, extensible by profile.
 默认简单，通过 profile 扩展。
 ```
 
-### 19.1 V0 粗粒度类型
+### 21.1 V0 粗粒度类型
 
 V0 只内置少量粗粒度类型：
 
@@ -963,7 +1423,7 @@ validation:
 - 建议跑什么 validation。
 - 是否需要 rollback plan。
 
-### 19.2 可选 subtype
+### 21.2 可选 subtype
 
 更细分类只作为可选字段：
 
@@ -981,7 +1441,7 @@ subtype: release_pipeline
 
 这样 V0 不强迫用户理解复杂 taxonomy，但复杂项目可以逐步增加细分。
 
-### 19.3 Project Profiles
+### 21.3 Project Profiles
 
 专业领域的差异应通过 profile 扩展，而不是硬编码进 engine。
 
@@ -1027,7 +1487,7 @@ CAD 软件可能关注：
 - plugin API
 - performance regression
 
-### 19.4 Profile Policy 示例
+### 21.4 Profile Policy 示例
 
 ```yaml
 change_taxonomy:
@@ -1062,7 +1522,7 @@ policies:
       - deploy dry-run
 ```
 
-### 19.5 Taxonomy 的产品价值
+### 21.5 Taxonomy 的产品价值
 
 分类不是为了分类，而是为了让系统知道：
 
@@ -1074,13 +1534,13 @@ policies:
 
 因此 V0 不暴露庞大的变更分类，只提供少量粗粒度类型；细分 taxonomy 通过项目 profile 和 policy 扩展。
 
-## 20. Team Collaboration and Review Policy
+## 22. Team Collaboration and Review Policy
 
 Mission Control 应该是 team-ready，但不能 team-required。
 
 也就是说，单人使用时产品必须成立；多人协作时，团队能力来自同一套 mission record、gate、review、handoff 和 policy，而不是一开始就做复杂团队系统。
 
-### 20.1 有价值的 Review
+### 22.1 有价值的 Review
 
 有价值的 review 不是“有人点 approve”，而是审查 AI 容易搞错、人类必须承担判断责任的地方。
 
@@ -1103,7 +1563,7 @@ Mission Control 应该是 team-ready，但不能 team-required。
 - agent 自己写完再自己宣布没问题。
 - 流程上看似严格，但没有记录“为什么批准”。
 
-### 20.2 协作关键节点
+### 22.2 协作关键节点
 
 团队协作不应该围绕 chat，而应该围绕 judgment points。
 
@@ -1125,7 +1585,7 @@ mission.completed
 
 这些节点天然适合协作，因为它们需要判断，而不只是执行。
 
-### 20.3 风险驱动 Review
+### 22.3 风险驱动 Review
 
 Review 应该由风险触发，而不是由仪式触发：
 
@@ -1175,7 +1635,7 @@ review_policy:
       - manual_check
 ```
 
-### 20.4 Policy 层级
+### 22.4 Policy 层级
 
 协作流程应分三层：
 
@@ -1209,7 +1669,7 @@ gates:
     requires_reason: true
 ```
 
-### 20.5 团队能力来自哪里
+### 22.5 团队能力来自哪里
 
 Mission Control 真正发挥团队能力的地方不是多人在线聊天，而是：
 
@@ -1231,24 +1691,25 @@ Mission Control should not hardcode a collaboration process. It should provide s
 Mission Control 不应该写死某一种协作流程。它应该提供共享工程记录、基于风险的 gate、可配置 review policy 和标准化 handoff 产物。
 ```
 
-## 21. Why Existing Tools Do Not Fully Solve This
+## 23. Why Existing Tools Do Not Fully Solve This
 
 现有工具证明了需求，但大多优化的是 agent 执行、IDE 体验、云端委派或底层编排框架。
 
 Mission Control 不应该靠“更会写代码”竞争，而应该定义一个可移植的 AI 协助软件工程控制记录层：mission spec、状态机、gate、事件、artifact、验证、评审、交接和回退。
 
-### 19.1 分类
+### 23.1 分类
 
-| 类型 | 代表 | 已解决 | 没完全解决 |
-| --- | --- | --- | --- |
-| 终端/IDE coding agent | Claude Code, Codex, Aider, Cline, Roo Code | 读代码、改代码、跑命令、局部审批、生成 diff | mission 作为标准工程记录；跨 agent 交接；统一事件日志；任务状态机 |
-| 后台 PR agent | GitHub Copilot coding agent, Cursor Background Agents | 后台执行、分支/PR、review 请求、云端环境 | 本地优先、repo-native mission spec、可移植 artifact、非平台绑定控制层 |
-| 商业 AI 软件工程师 | Devin | 任务执行、PR、代码库索引、团队场景、review | 强 SaaS/平台化；mission record 不一定是用户 repo 内可迁移标准 |
-| Mission/spec 产品 | Factory Missions, Kiro | 最接近：计划、milestones、spec、skills/hooks、orchestration | 仍绑定各自产品体验；不一定以 Git-backed open mission record 为核心抽象 |
-| Agent 框架 | LangGraph, LangChain, CrewAI, AutoGen | durable execution、human-in-loop、多 agent 编排、状态持久化 | 是开发框架，不是面向软件工程交付的产品规范；不定义 mission record、review、handoff、git 回退 |
-| 开源 agent 平台 | OpenHands, OpenClaw, Hermes-like agents | 自主执行、工具调用、浏览器/终端/文件操作、部分 memory/skills | 更偏 agent runtime 或个人自动化；不是专门的软件工程控制层 |
+| 类型                  | 代表                                                  | 已解决                                                             | 没完全解决                                                                                   |
+| --------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| 终端/IDE coding agent | Claude Code, Codex, Aider, Cline, Roo Code            | 读代码、改代码、跑命令、局部审批、生成 diff                        | mission 作为标准工程记录；跨 agent 交接；统一事件日志；任务状态机                            |
+| 后台 PR agent         | GitHub Copilot coding agent, Cursor Background Agents | 后台执行、分支/PR、review 请求、云端环境                           | 本地优先、repo-native mission spec、可移植 artifact、非平台绑定控制层                        |
+| 商业 AI 软件工程师    | Devin                                                 | 任务执行、PR、代码库索引、团队场景、review                         | 强 SaaS/平台化；mission record 不一定是用户 repo 内可迁移标准                                |
+| Mission/spec 产品     | Factory Missions, Kiro                                | 最接近：计划、milestones、spec、skills/hooks、orchestration        | 仍绑定各自产品体验；不一定以 Git-backed open mission record 为核心抽象                       |
+| 多 agent 编排系统     | Gas Town, Ruflo / Claude Flow                         | 任务拆解、agent 调度、worktree/hooks、memory、swarm、多 agent 协同 | 工程记录、验证证据、变更审批、调试链路、回退策略往往不是统一产品核心                         |
+| Agent 框架            | LangGraph, LangChain, CrewAI, AutoGen                 | durable execution、human-in-loop、多 agent 编排、状态持久化        | 是开发框架，不是面向软件工程交付的产品规范；不定义 mission record、review、handoff、git 回退 |
+| 开源 agent 平台       | OpenHands, OpenClaw, Hermes-like agents               | 自主执行、工具调用、浏览器/终端/文件操作、部分 memory/skills       | 更偏 agent runtime 或个人自动化；不是专门的软件工程控制层                                    |
 
-### 19.2 工具判断
+### 23.2 工具判断
 
 **Claude Code / Codex**
 
@@ -1286,6 +1747,18 @@ Kiro 的 specs、steering、hooks 证明了 spec-driven development 和 agentic 
 
 Mission Control 的差异应是 engine-first，而不是 IDE-first；它不把 spec 关在某个 IDE 里，而把 mission record 放进 repo。
 
+**Gas Town**
+
+Gas Town 是 Steve Yegge 提出的多 agent 编排系统实验，核心启发是用 coordinator、worker、worktree/hook、task ledger、supervisor 和 Git-backed state 来支撑多个 Claude Code 实例并行工作。
+
+它证明“大型 AI coding 任务需要任务颗粒度、持久化状态、隔离工作区和监督机制”。但 Mission Control 不应从 20-30 个 agent 并行开始，而应先把 mission record、trace、validation、rollback 和 handoff 做成稳定基础。Gas Town 的 Mayor、Hooks、Beads、Witness、Deacon、Auditor 等概念可以转化为 Mission Control 的 supervisor、worktree isolation、sub-missions/tasks、monitor、recovery 和 reviewer。
+
+**Ruflo / Claude Flow**
+
+Ruflo 代表 Claude Code 生态里的 agent orchestration 热点。它强调 agents、swarm、memory、RAG、MCP、plugins 和 Claude Code / Codex integration，说明开发者已经在寻找 coding agent 之上的调度层。
+
+Mission Control 可以借鉴 Ruflo 的 role library、slash commands、hooks、memory 和 runner adapter 思路，但不应复制“100+ agents”的叙事。Ruflo 管 agent 怎么协作；Mission Control 管 AI 软件任务怎么被规格化、批准、验证、记录、调试、回退和交付。
+
 **LangGraph / LangChain / CrewAI / AutoGen**
 
 这些是底层 agent 框架或编排框架。它们能提供 durable execution、human-in-loop、多 agent、状态持久化等能力。
@@ -1298,7 +1771,7 @@ Mission Control 的差异应是 engine-first，而不是 IDE-first；它不把 s
 
 但 Mission Control 关注的不是再造一个 runtime，而是定义 AI 协助软件开发时的工程控制记录层。
 
-### 19.3 结论
+### 23.3 结论
 
 现有工具分别解决了一部分问题：
 
@@ -1307,6 +1780,7 @@ Mission Control 的差异应是 engine-first，而不是 IDE-first；它不把 s
 - agent 如何跑在云端。
 - 多 agent 如何编排。
 - spec 如何辅助开发。
+- agent 如何保存 memory 和调用 tools。
 
 Mission Control 要解决的是另一层问题：
 
@@ -1322,7 +1796,7 @@ AI-assisted software work as controlled engineering records.
 
 这个定位允许 Mission Control 与现有 agent 和框架共存：Claude Code、Codex、Aider、Cline、LangGraph、OpenHands 都可以成为 engine 后面的 worker 或 runtime，而不是必须被替代。
 
-## 22. 与 Superpowers 的关系
+## 24. 与 Superpowers 的关系
 
 Mission Control 和 Superpowers 相似，但不是同一层产品。
 
@@ -1369,7 +1843,7 @@ Mission Control can use Superpowers-style skills as workflow modules.
 Mission Control 可以把 Superpowers 式 skills 作为 workflow 模块，但产品核心是 mission record 和 execution loop。
 ```
 
-## 23. 非目标
+## 25. 非目标
 
 V0/V1 明确不做：
 
@@ -1386,31 +1860,296 @@ V0/V1 明确不做：
 
 这些能力只有在 mission engine、record 和 validation loop 成立后才有价值。
 
-## 24. 路线图
+## 26. 路线图
 
-建议路线：
+路线图应从“证明工程闭环”开始，而不是从“堆多 agent 能力”开始。
+
+Gas Town 和 Ruflo 给出的共同信号是：AI coding 正在从单 agent 走向调度、记忆、并行和监督。但它们也提醒我们，V0 如果直接追求 20-30 个 agent、swarm、federation、plugin marketplace，会过早进入复杂度陷阱。
+
+Mission Control 的路线图应采用渐进式展开：
 
 ```text
-V0: headless CLI engine
+V0: Git-backed mission record + headless CLI
+V0.1: Observability and debugging primitives
+V0.2: Controlled change loop
+V0.3: Worktree isolation and rollback checkpoints
+V0.4: Task ledger and linear scheduler
 V0.5: Terminal TUI
-V1: fast editor adapters, Zed / Neovim experiments
-V2: VS Code / Cursor-compatible extension for reach
-V3: GitHub / PR integration
-V4: team dashboard
-V5: enterprise governance
+V1: Small multi-agent workflow
+V1.5: Adapter experiments for Claude Code / Codex / Zed / Neovim
+V2: VS Code / Cursor-compatible extension
+V3: GitHub / PR integration and review workflow
+V4: Team dashboard and policy layer
+V5: Enterprise governance
 ```
 
-阶段目标：
+### 26.1 V0: Git-backed Mission Record + Headless CLI
 
-- V0 证明 mission 闭环。
-- V0.5 证明本地交互体验。
-- V1 证明 fast editor integration。
-- V2 扩大 IDE 覆盖。
-- V3 进入真实交付流。
-- V4 支持小团队可视化。
-- V5 支持组织治理。
+目标：证明一个任务可以被规格化、记录化、验证化和交接。
 
-## 25. 指标
+范围：
+
+- `mission new`
+- `mission plan`
+- `mission approve`
+- `mission run`
+- `mission validate`
+- `mission status`
+- `mission trace`
+- `mission logs`
+- `mission debug`
+- `mission handoff`
+
+验收标准：
+
+- 能生成 `.missions/<mission-id>/mission.yaml`。
+- 能写入 `events.jsonl`。
+- 能生成 `plan.md`、`validation.log`、`handoff.md`。
+- 能展示 mission 当前状态。
+- 能输出从创建到当前的 timeline。
+- 能输出当前 mission 的监控摘要和下一步。
+- 验证失败时保留 stdout/stderr 和失败状态。
+
+明确不做：
+
+- 不接真实模型。
+- 不做 TUI。
+- 不做多 agent 并行。
+- 不做复杂 YAML schema。
+- 不做 worktree 自动管理。
+
+### 26.2 V0.1: Observability and Debugging Primitives
+
+目标：让 AI coding 任务可以被监控和调试。
+
+新增能力：
+
+- `telemetry.jsonl`：记录耗时、状态变化、验证结果、diff size。
+- `tool-calls.jsonl`：记录命令、工具调用、输入摘要、输出摘要。
+- `monitor.md`：记录当前健康度、下一步、任务状态、待处理变更、最近事件和 supervisor signals。
+- `supervisor-signals.jsonl`：记录 stuck、blocked、risky command、linear mutation conflict 等异常信号。
+- `debug.md`：记录失败原因、上下文来源、下一步建议。
+- `mission inspect`：查看某个 event、tool call 或 validation failure。
+
+核心判断：
+
+```text
+AI coding observability is not chat replay. It is mission state, tool calls, validation evidence, and rollback path.
+```
+
+中文：
+
+```text
+AI coding 的可观测性不是回放聊天，而是任务状态、工具调用、验证证据和回退路径。
+```
+
+### 26.3 V0.2: Controlled Change Loop
+
+目标：把“做到一半发现需求要变”产品化。
+
+新增能力：
+
+- `mission change propose`
+- `mission change list`
+- `mission change approve`
+- `mission change reject`
+- `mission change split`
+
+验收标准：
+
+- scope、acceptance、plan 的实质变更必须落到 `changes/change-xxx.yaml`。
+- 变更触发后 mission 进入 `needs_decision`。
+- approve/reject 后写入 `events.jsonl`。
+- 被批准的变更必须更新 `mission.yaml` 或 `plan.md`。
+
+### 26.4 V0.3: Worktree Isolation and Rollback Checkpoints
+
+目标：让 agent 改代码可以安全隔离、可回退。
+
+新增能力：
+
+- `mission branch`
+- `mission worktree`
+- `mission checkpoint`
+- `mission checkpoints`
+- `mission rollback-plan`
+- `mission rollback`
+- `mission diff`
+
+验收标准：
+
+- 每个 mission 可以创建独立 branch 或 worktree。
+- 关键状态前创建 checkpoint。
+- rollback 前保存当前 patch snapshot。
+- rollback event 写入 `events.jsonl`。
+- V0.3 只生成 rollback plan，不执行自动 rollback；真正回滚进入更高风险 gate。
+
+### 26.5 V0.4: Task Ledger and Linear Scheduler
+
+目标：在不打开复杂并行变更的前提下，为后续多 agent 编排建立任务颗粒度和调度约束。
+
+新增能力：
+
+- `mission tasks`
+- `mission task add`
+- `mission task set-status`
+- `mission task audit-scope`
+- validation secret redaction
+- task dependencies
+- automatic pending -> ready unblocking
+- one-running-`linear_write` guard
+- scope drift audit
+
+验收标准：
+
+- sidecar 任务可以并行记录和推进。
+- 代码、配置、schema、环境和 release 相关写入任务保持线性。
+- 同一 mission 不能同时有多个 `linear_write` task 处于 running。
+- 当前 git changes 可以按 task scope 执行 allow/deny 审计；越界修改写入 `scope_drift` supervisor signal。
+- task ledger 的事件必须进入 `events.jsonl`，冲突必须进入 `supervisor-signals.jsonl`。
+
+### 26.6 V0.5: Terminal TUI
+
+目标：让本地 mission flow 可以被人高频使用。
+
+TUI 第一版只展示：
+
+- mission list
+- current status
+- pending gates
+- plan
+- validation result
+- trace
+- tool calls
+- handoff
+
+不做复杂 dashboard，不做团队协作。
+
+### 26.7 V1: Small Multi-Agent Workflow
+
+目标：吸收 Gas Town / Ruflo 的 agent 编排启发，但只做小规模、可调试、可验证的多 agent。
+
+V1 默认 agent roles：
+
+- `planner-agent`
+- `worker-agent`
+- `validator-agent`
+- `reviewer-agent`
+- `handoff-agent`
+- `supervisor-agent`
+
+V1 不追求 20-30 个 agent 同时跑。默认只允许 2-3 个 agent 协作：
+
+```text
+planner -> worker -> validator -> reviewer -> handoff
+```
+
+可选并行：
+
+```text
+worker-code + worker-tests -> validator -> reviewer
+```
+
+验收标准：
+
+- 每个 agent 都有独立 actor id。
+- 每个 agent 的输入摘要、输出摘要、工具调用和状态变化都进入 mission record。
+- supervisor 能检测 stuck、repeated failure、scope drift。
+- 并行任务必须通过 merge queue 汇合，不允许静默覆盖。
+
+### 26.8 V1.5: Adapter Experiments
+
+目标：让 Mission Control 可以调度已有 agent surface，而不是替代它们。
+
+优先 adapter：
+
+- Claude Code runner
+- Codex runner
+- shell runner
+- Zed command adapter
+- Neovim terminal adapter
+
+判断：
+
+- Claude Code / Codex 是 worker runtime。
+- Mission Control 是 mission record 和 control plane。
+- Ruflo / Gas Town 类系统未来也可以作为 runner backend。
+
+### 26.9 V2: VS Code / Cursor-compatible Extension
+
+目标：扩大使用面，但不重写核心 engine。
+
+能力：
+
+- 创建 mission。
+- 查看状态。
+- 审核 plan。
+- 批准 gate。
+- 查看 validation、trace、diff、handoff。
+- 从 editor 跳转到 artifact。
+
+### 26.10 V3: GitHub / PR Integration
+
+目标：进入真实交付流程。
+
+能力：
+
+- mission -> branch -> PR
+- PR comment -> review event
+- GitHub check -> validation event
+- review comment -> change proposal
+- PR merge -> mission completed
+
+### 26.11 V4: Team Dashboard and Policy Layer
+
+目标：支持小团队围绕 mission record 协作。
+
+能力：
+
+- mission board
+- blocked missions
+- pending gates
+- risk-based review policy
+- reviewer assignment
+- team metrics
+
+### 26.12 V5: Enterprise Governance
+
+目标：支持组织级治理。
+
+能力：
+
+- RBAC
+- audit export
+- policy enforcement
+- secret redaction
+- environment mutation controls
+- compliance evidence package
+
+### 26.13 当前实现状态
+
+截至 2026-05-12：
+
+- V0 headless CLI、基础 workflow state gates 和 Git-backed mission record 已落地。
+- V0.1 的 telemetry、tool-calls、supervisor signals、trace、logs、debug、inspect、monitor、扩展 secret redaction、可配置 redaction patterns、repeated failure signal 和 stale running task diagnosis 已落地。
+- V0.2 的 change proposal lifecycle 已落地；approved change 已可通过显式 `mission change apply` 安全追加到 mission spec 和 plan notes，自动/结构化 plan patch 仍是 TBD。
+- V0.3 的 branch、worktree、diff、task-scoped patch capture、checkpoint、rollback-plan、non-destructive rollback-check 已落地；自动 rollback 仍是 TBD。
+- V0.4 的 task ledger、dependency unblocking、linear mutation guard、scope drift audit 已落地。
+- 下一阶段应先补更完整的 project profile/policy、可配置 redaction policy、受控 plan patch、更完整的 state machine policy 和 TUI 设计验证，再进入真实 runner adapter；基础 policy init/show 已落地。
+
+### 26.14 实现顺序
+
+当前实现顺序：
+
+1. 先实现 V0 CLI 骨架和 `.missions/` record。
+2. 补上 V0.1 的 trace/log/debug artifacts。
+3. 实现 V0.2 change proposal。
+4. 实现 V0.3 git branch/worktree/checkpoint。
+5. 实现 V0.4 task ledger 和 linear scheduler。
+6. 再做 TUI。
+7. 最后引入小规模 multi-agent workflow。
+
+## 27. 指标
 
 第一阶段 North Star 不应是调用次数或生成代码行数。
 
@@ -1429,10 +2168,15 @@ Validated Missions Completed per Week
 - diff accepted rate
 - rollback / failure rate
 - handoff reuse rate
+- trace completeness rate
+- debug time after failure
+- stuck mission count
+- scope drift count
+- agent/tool-call failure rate
 
 真正有价值的不是 AI 写了多少代码，而是多少任务被稳定推进到了可接受的交付状态。
 
-## 26. 护城河
+## 28. 护城河
 
 护城河不是模型。
 
@@ -1451,10 +2195,14 @@ Validated Missions Completed per Week
 7. Risk-based Review Policy：让团队协作围绕关键判断点，而不是围绕形式化审批。
 8. Traceability and Rollback：让代码、环境、schema 和架构变更都具备记录、检查和回退路径。
 9. Git-backed Execution：让历史、回退、协作和审计天然接入开发流程。
+10. Agent Observability：让每次 agent 工作都有 trace、tool calls、validation evidence 和 debug path。
+11. Bounded Multi-Agent Orchestration：从小规模、可验证、可合并的多 agent workflow 开始，而不是不可控 swarm。
+12. Quality Engineering：用功能、性能、逻辑合理性、异常分支、mutation testing 和 E2E 测试保证系统可信。
+13. Product Craft：参考 Linear、Raycast、GitHub、Lazygit、k9s、Sentry、Datadog、Temporal、Kubernetes 等标杆，持续打磨软件工程、人机交互和可观测性体验。
 
 长期看，最值钱的是一套 AI 协助软件开发的工程操作系统。
 
-## 27. 近期决策清单
+## 29. 近期决策清单
 
 建议默认决策：
 
@@ -1472,8 +2220,16 @@ Validated Missions Completed per Week
 - 非代码变更必须先写 rollback plan，再进入 approval gate。
 - V0 的 change taxonomy 只暴露粗粒度类型，细分类型通过 `subtype` 和 project profile 扩展。
 - V0 的 review policy 默认轻量；高风险类型可以配置 blocking gate，低风险 review 默认 advisory 或 optional。
+- V0.1 把 observability 作为 core，不作为后续 dashboard 附加功能。
+- V1 多 agent 默认限制为 2-3 个 agent，必须有独立 actor、scope、tool-call log 和 validation evidence。
+- Gas Town 的 Git-backed hooks/worktrees 值得借鉴，但 20-30 agent 并行不是早期目标。
+- Ruflo 的 Claude Code / Codex integration 值得借鉴，但 Mission Control 应优先定义 runner-neutral mission record。
+- 主实现语言改为 TypeScript，工具链采用 Bun-first。
+- V0 先证明 `.missions/` record 闭环；TUI、runner adapter、dashboard 后续再引入。
+- 测试策略不只包含 unit tests，还必须包含 property-based、CLI integration、golden artifacts、state machine、performance、security boundary、mutation 和前端 E2E。
+- 每个 CLI/TUI/Web/IDE 体验变更都需要 craft review，检查命令语义、输出审美、信息密度、错误态、空状态、长任务状态和标杆参考。
 
-## 28. 最终判断
+## 30. 最终判断
 
 Mission Control 不应该从“做一个更强的 agent”开始。
 
