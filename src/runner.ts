@@ -489,7 +489,11 @@ async function createCcSwitchCodexHome(
   const dbPath = join(homedir(), ".cc-switch", "cc-switch.db");
   const providersResult = await spawnCaptured(
     "sqlite3",
-    ["-json", dbPath, "SELECT id, name, settings_config FROM providers WHERE app_type = 'codex'"],
+    [
+      "-json",
+      dbPath,
+      "SELECT id, name, is_current, settings_config FROM providers WHERE app_type = 'codex'",
+    ],
     process.cwd(),
   );
   if (providersResult.exitCode !== 0 || providersResult.stdout.trim().length === 0) {
@@ -499,12 +503,15 @@ async function createCcSwitchCodexHome(
   const providers = parseJsonArray<{
     id?: string;
     name?: string;
+    is_current?: number;
     settings_config?: string;
   }>(providersResult.stdout);
+  const normalizedProfile = profile.toLowerCase();
   const selected = providers.find(
     (provider) =>
-      provider.name?.toLowerCase() === profile.toLowerCase() ||
-      provider.id?.toLowerCase() === profile.toLowerCase(),
+      (normalizedProfile === "current" && provider.is_current === 1) ||
+      provider.name?.toLowerCase() === normalizedProfile ||
+      provider.id?.toLowerCase() === normalizedProfile,
   );
   if (!selected?.settings_config) return undefined;
 

@@ -346,6 +346,8 @@ Switch codex provider by name or id. If found, Supermission creates a temporary
 repo or run log. If no CC Switch provider matches, the value is passed through to
 Codex as a native `-p/--profile`.
 
+Use `--profile current` to follow the current CC Switch Codex provider.
+
 Use `--fallback-profile` repeatedly when a runner should keep trying alternate
 profiles before failing the mission run.
 

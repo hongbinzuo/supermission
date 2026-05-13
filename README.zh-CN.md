@@ -236,6 +236,8 @@ provider。匹配成功时，Supermission 会为子进程创建临时 `CODEX_HOM
 provider secret 写进仓库或 run log。匹配不到时，这个值会继续作为 Codex 原生
 `-p/--profile` 传入。
 
+使用 `--profile current` 可以跟随 CC Switch 当前选中的 Codex provider。
+
 需要自动换 profile 时，可以重复传入 `--fallback-profile`；前一个 profile 失败后，
 runner 会继续尝试后面的 profile，全部失败才让 mission run 失败。
 
