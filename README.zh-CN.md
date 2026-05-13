@@ -172,6 +172,11 @@ bin/mission handoff <mission-id>
 - `mission task set-status`
 - `mission task audit-scope`
 
+Runner 诊断：
+
+- `mission runner list`
+- `mission runner profiles`
+
 Git 证据和隔离：
 
 - `mission diff`

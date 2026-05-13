@@ -6,6 +6,38 @@ import type { MissionSpec } from "./types.js";
 
 export type RunnerBackend = "record" | "shell" | "codex" | "claude";
 
+export type RunnerDescriptor = {
+  backend: RunnerBackend;
+  label: string;
+  kind: "local" | "external";
+  profileSource?: "cc-switch-or-native" | "native";
+};
+
+export type RunnerProfile = {
+  backend: "codex" | "claude";
+  id: string;
+  name: string;
+  current: boolean;
+  source: "cc-switch";
+};
+
+export const RUNNER_REGISTRY: RunnerDescriptor[] = [
+  { backend: "record", label: "Record an external/manual run", kind: "local" },
+  { backend: "shell", label: "Execute a local shell command", kind: "local" },
+  {
+    backend: "codex",
+    label: "Execute Codex CLI through the shared runner interface",
+    kind: "external",
+    profileSource: "cc-switch-or-native",
+  },
+  {
+    backend: "claude",
+    label: "Execute Claude Code CLI through the shared runner interface",
+    kind: "external",
+    profileSource: "native",
+  },
+];
+
 export type RunnerContext = {
   repo: string;
   mission: MissionSpec;
@@ -125,6 +157,44 @@ export async function executeRunner(
     case "claude":
       return executeClaudeRunner(context, options);
   }
+}
+
+export async function listCcSwitchRunnerProfiles(
+  backend?: "codex" | "claude",
+): Promise<RunnerProfile[]> {
+  const dbPath = join(homedir(), ".cc-switch", "cc-switch.db");
+  const where = backend ? `WHERE app_type = '${backend}'` : "WHERE app_type IN ('codex', 'claude')";
+  const result = await spawnCaptured(
+    "sqlite3",
+    [
+      "-json",
+      dbPath,
+      `SELECT id, app_type, name, is_current FROM providers ${where} ORDER BY app_type, is_current DESC, name`,
+    ],
+    process.cwd(),
+  );
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+    return [];
+  }
+  return parseJsonArray<{
+    id?: string;
+    app_type?: string;
+    name?: string;
+    is_current?: number;
+  }>(result.stdout)
+    .filter(
+      (profile) =>
+        (profile.app_type === "codex" || profile.app_type === "claude") &&
+        profile.id &&
+        profile.name,
+    )
+    .map((profile) => ({
+      backend: profile.app_type as "codex" | "claude",
+      id: profile.id ?? "",
+      name: profile.name ?? "",
+      current: profile.is_current === 1,
+      source: "cc-switch",
+    }));
 }
 
 async function executeRecordRunner(context: RunnerContext): Promise<RunnerExecution> {

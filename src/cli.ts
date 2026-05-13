@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { readFile } from "node:fs/promises";
 import YAML from "yaml";
-import { executeRunner } from "./runner.js";
+import { executeRunner, listCcSwitchRunnerProfiles, RUNNER_REGISTRY } from "./runner.js";
 import { MissionStore } from "./store.js";
 import { ChangeTypeSchema, TaskStatusSchema } from "./types.js";
 
@@ -62,6 +62,39 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         console.log(`approved ${options.gate} for ${missionId}`);
       },
     );
+
+  const runnerCommand = program.command("runner").description("Inspect runner backends");
+  runnerCommand
+    .command("list")
+    .description("List available runner backends")
+    .action(() => {
+      for (const runner of RUNNER_REGISTRY) {
+        const profile =
+          runner.profileSource === "cc-switch-or-native"
+            ? " profiles=cc-switch-or-native"
+            : runner.profileSource
+              ? ` profiles=${runner.profileSource}`
+              : "";
+        console.log(`${runner.backend} ${runner.kind}${profile} - ${runner.label}`);
+      }
+    });
+
+  runnerCommand
+    .command("profiles")
+    .description("List configured runner profiles without printing secrets")
+    .option("--backend <backend>", "codex | claude")
+    .action(async (options: { backend?: string }) => {
+      const backend = parseProfileBackend(options.backend);
+      const profiles = await listCcSwitchRunnerProfiles(backend);
+      if (profiles.length === 0) {
+        console.log("no cc-switch profiles found");
+        return;
+      }
+      for (const profile of profiles) {
+        const current = profile.current ? " current" : "";
+        console.log(`${profile.backend} ${profile.name}${current} source=${profile.source}`);
+      }
+    });
 
   program
     .command("run")
@@ -783,6 +816,12 @@ function parseInteger(value: string): number {
     throw new Error(`invalid positive integer: ${value}`);
   }
   return parsed;
+}
+
+function parseProfileBackend(value?: string): "codex" | "claude" | undefined {
+  if (!value) return undefined;
+  if (value === "codex" || value === "claude") return value;
+  throw new Error(`invalid profile backend: ${value}`);
 }
 
 function parseSourceKind(value: string): "human" | "agent" | "validation" | "review" | "system" {

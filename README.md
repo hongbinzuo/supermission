@@ -164,6 +164,8 @@ bin/mission task add <mission-id> \
   --scope-allow ".missions/**"
 bin/mission task set-status <mission-id> task-002 --status done
 bin/mission task audit-scope <mission-id> task-001
+bin/mission runner list
+bin/mission runner profiles --backend codex
 bin/mission handoff <mission-id>
 bin/mission trace <mission-id>
 bin/mission inspect <mission-id> events 0
@@ -264,6 +266,11 @@ Task ledger:
 - `mission task add`
 - `mission task set-status`
 - `mission task audit-scope`
+
+Runner diagnostics:
+
+- `mission runner list`
+- `mission runner profiles`
 
 Git evidence and isolation:
 

@@ -105,6 +105,17 @@ describe("mission CLI", () => {
     });
   }, 120000);
 
+  it("lists runner backend metadata", async () => {
+    await withTempRepo(async (repo) => {
+      const result = await runMission(repo, ["runner", "list"]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("record local");
+      expect(result.stdout).toContain("shell local");
+      expect(result.stdout).toContain("codex external profiles=cc-switch-or-native");
+      expect(result.stdout).toContain("claude external profiles=native");
+    });
+  });
+
   const codexSmoke = shouldRunExternalSmoke("codex") ? it : it.skip;
   codexSmoke(
     "smokes the codex runner backend",
