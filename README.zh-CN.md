@@ -177,6 +177,8 @@ Runner 诊断：
 
 - `mission runner list`
 - `mission runner profiles`
+- `mission runner config init`
+- `mission runner config show`
 
 Git 证据和隔离：
 
@@ -236,6 +238,10 @@ provider secret 写进仓库或 run log。匹配不到时，这个值会继续�
 
 需要自动换 profile 时，可以重复传入 `--fallback-profile`；前一个 profile 失败后，
 runner 会继续尝试后面的 profile，全部失败才让 mission run 失败。
+
+项目级默认 runner 配置保存在 `.missions/runners.yaml`。使用
+`mission runner config init/show` 管理第一版配置；显式传给 `mission run` 的参数
+优先级高于项目配置。
 
 测试覆盖黑盒 CLI 集成、property-based tests、schema validation、失败分支、
 supervisor signals 和基础 trace 性能预算。当前测试数量以 `bun run test` 输出为准。

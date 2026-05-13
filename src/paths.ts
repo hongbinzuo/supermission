@@ -8,6 +8,7 @@ export function missionPaths(repo: string, missionId: string) {
   const root = join(repo, MISSION_ROOT, missionId);
   return {
     policy: join(repo, MISSION_ROOT, "policy.yaml"),
+    runners: join(repo, MISSION_ROOT, "runners.yaml"),
     root,
     tasks: join(root, "tasks"),
     changes: join(root, "changes"),

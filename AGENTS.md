@@ -17,6 +17,8 @@ reference material for abstractions and tradeoffs only.
 
 - Keep the mission engine runner-neutral.
 - Put model runtimes behind runner/adapters.
+- Keep project runner defaults in `.missions/runners.yaml`; CLI flags should
+  override project config.
 - Prefer plugin/component boundaries for runners, validators, artifact writers,
   policies, workflow templates, and future UI adapters.
 - `.missions/` remains the source of truth. A database may be added later as an

@@ -2,9 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import { z } from "zod";
 import type { MissionSpec } from "./types.js";
 
 export type RunnerBackend = "record" | "shell" | "codex" | "claude";
+
+export const RunnerBackendSchema = z.enum(["record", "shell", "codex", "claude"]);
 
 export type RunnerDescriptor = {
   backend: RunnerBackend;
@@ -56,6 +59,42 @@ export type RunnerOptions = {
   tools?: string[];
   timeoutMs?: number;
 };
+
+const DEFAULT_BACKEND_CONFIG = { fallback_profiles: [], tools: [] };
+
+const RunnerBackendConfigSchema = z.object({
+  command: z.string().min(1).optional(),
+  prompt: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  profile: z.string().min(1).optional(),
+  fallback_profiles: z.array(z.string().min(1)).default([]),
+  sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),
+  permission_mode: z
+    .enum(["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"])
+    .optional(),
+  tools: z.array(z.string().min(1)).default([]),
+  timeout_ms: z.number().int().positive().optional(),
+});
+
+export const RunnerConfigSchema = z.object({
+  default_backend: RunnerBackendSchema.default("record"),
+  backends: z
+    .object({
+      record: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      shell: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      codex: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      claude: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+    })
+    .default({
+      record: DEFAULT_BACKEND_CONFIG,
+      shell: DEFAULT_BACKEND_CONFIG,
+      codex: DEFAULT_BACKEND_CONFIG,
+      claude: DEFAULT_BACKEND_CONFIG,
+    }),
+});
+
+export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
+export type RunnerBackendConfig = z.infer<typeof RunnerBackendConfigSchema>;
 
 export type RunnerExecution = {
   backend: RunnerBackend;

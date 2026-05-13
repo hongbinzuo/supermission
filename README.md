@@ -167,6 +167,12 @@ bin/mission task set-status <mission-id> task-002 --status done
 bin/mission task audit-scope <mission-id> task-001
 bin/mission runner list
 bin/mission runner profiles --backend codex
+bin/mission runner config init \
+  --default-backend codex \
+  --profile your-profile \
+  --fallback-profile another-profile \
+  --timeout-ms 60000
+bin/mission runner config show
 bin/mission handoff <mission-id>
 bin/mission trace <mission-id>
 bin/mission inspect <mission-id> events 0
@@ -272,6 +278,8 @@ Runner diagnostics:
 
 - `mission runner list`
 - `mission runner profiles`
+- `mission runner config init`
+- `mission runner config show`
 
 Git evidence and isolation:
 
@@ -340,6 +348,10 @@ Codex as a native `-p/--profile`.
 
 Use `--fallback-profile` repeatedly when a runner should keep trying alternate
 profiles before failing the mission run.
+
+Project defaults live in `.missions/runners.yaml`. Use
+`mission runner config init/show` to manage a first version of that file. Explicit
+`mission run` flags override the project config.
 
 The current tests include black-box CLI integration, property-based tests,
 schema validation, failure branches, supervisor signals, and a basic trace

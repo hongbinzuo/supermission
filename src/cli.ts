@@ -2,7 +2,16 @@
 import { Command } from "commander";
 import { readFile } from "node:fs/promises";
 import YAML from "yaml";
-import { executeRunner, listCcSwitchRunnerProfiles, RUNNER_REGISTRY } from "./runner.js";
+import {
+  executeRunner,
+  listCcSwitchRunnerProfiles,
+  RUNNER_REGISTRY,
+  RunnerBackendSchema,
+  type RunnerBackend,
+  type RunnerBackendConfig,
+  type RunnerConfig,
+  type RunnerOptions,
+} from "./runner.js";
 import { MissionStore } from "./store.js";
 import { ChangeTypeSchema, TaskStatusSchema } from "./types.js";
 
@@ -96,13 +105,72 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       }
     });
 
+  const runnerConfigCommand = runnerCommand.command("config").description("Manage runner config");
+  runnerConfigCommand
+    .command("show")
+    .description("Show .missions/runners.yaml or the default runner config")
+    .action(async () => {
+      console.log(YAML.stringify(await storeFrom(program).readRunnerConfig()).trimEnd());
+    });
+
+  runnerConfigCommand
+    .command("init")
+    .description("Write .missions/runners.yaml")
+    .option("--default-backend <backend>", "Default backend", parseRunnerBackend, "record")
+    .option("--command <command>", "Default shell command for the selected backend")
+    .option("--prompt <prompt>", "Default prompt for the selected backend")
+    .option("--model <model>", "Default model for the selected backend")
+    .option("--profile <profile>", "Default profile for the selected backend")
+    .option(
+      "--fallback-profile <profile>",
+      "Fallback profile for the selected backend",
+      collect,
+      [],
+    )
+    .option("--sandbox <mode>", "Default Codex sandbox mode")
+    .option("--permission-mode <mode>", "Default Claude permission mode")
+    .option("--tool <tool>", "Default allowed tool for model runners", collect, [])
+    .option("--timeout-ms <ms>", "Default runner timeout in milliseconds", parseInteger)
+    .action(
+      async (options: {
+        defaultBackend: RunnerBackend;
+        command?: string;
+        prompt?: string;
+        model?: string;
+        profile?: string;
+        fallbackProfile: string[];
+        sandbox?: string;
+        permissionMode?: string;
+        tool: string[];
+        timeoutMs?: number;
+      }) => {
+        const backendConfig: RunnerBackendConfig = {
+          ...(options.command ? { command: options.command } : {}),
+          ...(options.prompt ? { prompt: options.prompt } : {}),
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.profile ? { profile: options.profile } : {}),
+          fallback_profiles: options.fallbackProfile,
+          ...(options.sandbox ? { sandbox: parseSandbox(options.sandbox) } : {}),
+          ...(options.permissionMode
+            ? { permission_mode: parsePermissionMode(options.permissionMode) }
+            : {}),
+          tools: options.tool,
+          ...(options.timeoutMs ? { timeout_ms: options.timeoutMs } : {}),
+        };
+        const config = defaultRunnerConfig(options.defaultBackend);
+        config.backends[options.defaultBackend] = backendConfig;
+        const written = await storeFrom(program).writeRunnerConfig(config);
+        console.log(YAML.stringify(written).trimEnd());
+      },
+    );
+
   program
     .command("run")
     .description("Record a V0 sequential implementation run")
     .argument("<mission-id>")
     .option("--actor <actor>", "Actor id", "worker-agent")
     .option("--note <note>", "Run note")
-    .option("--backend <backend>", "record | shell | codex | claude", "record")
+    .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
     .option("--command <command>", "Shell command for shell runner")
     .option("--prompt <prompt>", "Prompt for runner backends")
     .option("--model <model>", "Runner model override")
@@ -113,8 +181,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       collect,
       [],
     )
-    .option("--sandbox <mode>", "Codex sandbox mode", "danger-full-access")
-    .option("--permission-mode <mode>", "Claude permission mode", "bypassPermissions")
+    .option("--sandbox <mode>", "Codex sandbox mode", parseSandbox)
+    .option("--permission-mode <mode>", "Claude permission mode", parsePermissionMode)
     .option("--tool <tool>", "Allowed tool for model runners", collect, [])
     .option("--timeout-ms <ms>", "Runner process timeout in milliseconds", parseInteger)
     .action(
@@ -123,26 +191,31 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         options: {
           actor: string;
           note?: string;
-          backend: "record" | "shell" | "codex" | "claude";
+          backend?: RunnerBackend;
           command?: string;
           prompt?: string;
           model?: string;
           profile?: string;
           fallbackProfile: string[];
-          sandbox: "read-only" | "workspace-write" | "danger-full-access";
+          sandbox?: "read-only" | "workspace-write" | "danger-full-access";
           permissionMode:
             | "acceptEdits"
             | "auto"
             | "bypassPermissions"
             | "default"
             | "dontAsk"
-            | "plan";
+            | "plan"
+            | undefined;
           tool: string[];
           timeoutMs?: number;
         },
       ) => {
         const store = storeFrom(program);
-        if (options.backend === "record") {
+        const runnerConfig = await store.readRunnerConfig();
+        const backend = options.backend ?? runnerConfig.default_backend;
+        const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
+
+        if (backend === "record") {
           await store.recordRun(missionId, options.actor, options.note);
           console.log(`recorded run for ${missionId}`);
           return;
@@ -150,34 +223,24 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
         let startedRun = false;
         try {
-          if (options.backend === "shell" && !options.command) {
+          if (backend === "shell" && !mergedOptions.command) {
             throw new Error("shell runner requires --command");
           }
           const spec = await store.beginRun(missionId, options.actor);
           startedRun = true;
           const execution = await executeRunner(
-            options.backend,
+            backend,
             {
               repo: store.repo,
               mission: spec,
               actor: options.actor,
               note: options.note,
             },
-            {
-              command: options.command,
-              prompt: options.prompt ?? options.note,
-              model: options.model,
-              profile: options.profile,
-              fallbackProfiles: options.fallbackProfile,
-              sandbox: options.sandbox,
-              permissionMode: options.permissionMode,
-              tools: options.tool,
-              timeoutMs: options.timeoutMs,
-            },
+            mergedOptions,
           );
           await store.recordRunnerExecution(missionId, options.actor, execution);
           console.log(
-            `${options.backend} runner ${missionId} exit ${execution.exitCode} (${execution.durationMs}ms)`,
+            `${backend} runner ${missionId} exit ${execution.exitCode} (${execution.durationMs}ms)`,
           );
           process.exitCode = execution.exitCode === 0 ? 0 : execution.exitCode;
         } catch (error) {
@@ -826,10 +889,82 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+function parseRunnerBackend(value: string): RunnerBackend {
+  return RunnerBackendSchema.parse(value);
+}
+
 function parseProfileBackend(value?: string): "codex" | "claude" | undefined {
   if (!value) return undefined;
   if (value === "codex" || value === "claude") return value;
   throw new Error(`invalid profile backend: ${value}`);
+}
+
+function parseSandbox(value: string): "read-only" | "workspace-write" | "danger-full-access" {
+  if (value === "read-only" || value === "workspace-write" || value === "danger-full-access") {
+    return value;
+  }
+  throw new Error(`invalid sandbox mode: ${value}`);
+}
+
+function parsePermissionMode(
+  value: string,
+): "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan" {
+  if (
+    value === "acceptEdits" ||
+    value === "auto" ||
+    value === "bypassPermissions" ||
+    value === "default" ||
+    value === "dontAsk" ||
+    value === "plan"
+  ) {
+    return value;
+  }
+  throw new Error(`invalid permission mode: ${value}`);
+}
+
+function defaultRunnerConfig(defaultBackend: RunnerBackend): RunnerConfig {
+  return {
+    default_backend: defaultBackend,
+    backends: {
+      record: { fallback_profiles: [], tools: [] },
+      shell: { fallback_profiles: [], tools: [] },
+      codex: { fallback_profiles: [], tools: [] },
+      claude: { fallback_profiles: [], tools: [] },
+    },
+  };
+}
+
+function mergeRunnerOptions(
+  config: RunnerConfig,
+  backend: RunnerBackend,
+  options: {
+    note?: string;
+    command?: string;
+    prompt?: string;
+    model?: string;
+    profile?: string;
+    fallbackProfile: string[];
+    sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+    permissionMode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
+    tool: string[];
+    timeoutMs?: number;
+  },
+): RunnerOptions {
+  const backendConfig = config.backends[backend];
+  return {
+    command: options.command ?? backendConfig.command,
+    prompt: options.prompt ?? backendConfig.prompt ?? options.note,
+    model: options.model ?? backendConfig.model,
+    profile: options.profile ?? backendConfig.profile,
+    fallbackProfiles:
+      options.fallbackProfile.length > 0
+        ? options.fallbackProfile
+        : backendConfig.fallback_profiles,
+    sandbox: options.sandbox ?? backendConfig.sandbox ?? "danger-full-access",
+    permissionMode: options.permissionMode ?? backendConfig.permission_mode ?? "bypassPermissions",
+    tools: options.tool.length > 0 ? options.tool : backendConfig.tools,
+    timeoutMs: options.timeoutMs ?? backendConfig.timeout_ms,
+  };
 }
 
 function parseSourceKind(value: string): "human" | "agent" | "validation" | "review" | "system" {

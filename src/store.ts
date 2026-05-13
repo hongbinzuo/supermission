@@ -6,7 +6,12 @@ import YAML from "yaml";
 import { appendJsonl, readJsonl } from "./jsonl.js";
 import { MISSION_ROOT, missionPaths } from "./paths.js";
 import { redactSecrets } from "./redaction.js";
-import { formatRunLog, type RunnerExecution } from "./runner.js";
+import {
+  formatRunLog,
+  RunnerConfigSchema,
+  type RunnerConfig,
+  type RunnerExecution,
+} from "./runner.js";
 import { slugify } from "./slug.js";
 import { utcNow } from "./time.js";
 import {
@@ -287,6 +292,25 @@ export class MissionStore {
     const parsed = MissionPolicySchema.parse(policy);
     await mkdir(join(this.repo, MISSION_ROOT), { recursive: true });
     await writeFile(this.paths("policy").policy, YAML.stringify(parsed), "utf8");
+    return parsed;
+  }
+
+  async readRunnerConfig(): Promise<RunnerConfig> {
+    try {
+      const text = await readFile(this.paths("runners").runners, "utf8");
+      return RunnerConfigSchema.parse(YAML.parse(text));
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        return RunnerConfigSchema.parse({});
+      }
+      throw error;
+    }
+  }
+
+  async writeRunnerConfig(config: RunnerConfig): Promise<RunnerConfig> {
+    const parsed = RunnerConfigSchema.parse(config);
+    await mkdir(join(this.repo, MISSION_ROOT), { recursive: true });
+    await writeFile(this.paths("runners").runners, YAML.stringify(parsed), "utf8");
     return parsed;
   }
 

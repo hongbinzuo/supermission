@@ -116,6 +116,41 @@ describe("mission CLI", () => {
     });
   });
 
+  it("uses project runner config when run options are omitted", async () => {
+    await withTempRepo(async (repo) => {
+      const init = await runMission(repo, [
+        "runner",
+        "config",
+        "init",
+        "--default-backend",
+        "shell",
+        "--command",
+        "printf configured-runner > runner-output.txt",
+        "--timeout-ms",
+        "60000",
+      ]);
+      expect(init.exitCode).toBe(0);
+      expect(init.stdout).toContain("default_backend: shell");
+
+      const show = await runMission(repo, ["runner", "config", "show"]);
+      expect(show.stdout).toContain("configured-runner");
+
+      await runMission(repo, ["new", "Configured runner mission", "--id", "mission-runner-config"]);
+      await runMission(repo, ["plan", "mission-runner-config"]);
+      await runMission(repo, ["approve", "mission-runner-config"]);
+
+      const result = await runMission(repo, ["run", "mission-runner-config"]);
+      expect(result.exitCode).toBe(0);
+      expect(await readFile(join(repo, "runner-output.txt"), "utf8")).toBe("configured-runner");
+
+      const runLog = await readFile(
+        join(repo, ".missions", "mission-runner-config", "run.log"),
+        "utf8",
+      );
+      expect(runLog).toContain("Backend: shell");
+    });
+  });
+
   const codexSmoke = shouldRunExternalSmoke("codex") ? it : it.skip;
   codexSmoke(
     "smokes the codex runner backend",

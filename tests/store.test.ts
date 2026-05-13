@@ -252,6 +252,46 @@ describe("MissionStore", () => {
     });
   });
 
+  it("writes and reads project runner config", async () => {
+    await withTempRepo(async (repo) => {
+      const store = new MissionStore(repo);
+      await expect(store.readRunnerConfig()).resolves.toEqual({
+        default_backend: "record",
+        backends: {
+          record: { fallback_profiles: [], tools: [] },
+          shell: { fallback_profiles: [], tools: [] },
+          codex: { fallback_profiles: [], tools: [] },
+          claude: { fallback_profiles: [], tools: [] },
+        },
+      });
+
+      await store.writeRunnerConfig({
+        default_backend: "shell",
+        backends: {
+          record: { fallback_profiles: [], tools: [] },
+          shell: {
+            command: "printf configured > runner-output.txt",
+            fallback_profiles: [],
+            tools: [],
+          },
+          codex: { fallback_profiles: ["nf"], profile: "kktest", tools: [], timeout_ms: 60000 },
+          claude: { fallback_profiles: [], tools: [] },
+        },
+      });
+
+      expect(await store.readRunnerConfig()).toMatchObject({
+        default_backend: "shell",
+        backends: {
+          shell: { command: "printf configured > runner-output.txt" },
+          codex: { profile: "kktest", fallback_profiles: ["nf"], timeout_ms: 60000 },
+        },
+      });
+      expect(await readFile(join(repo, ".missions", "runners.yaml"), "utf8")).toContain(
+        "default_backend: shell",
+      );
+    });
+  });
+
   it("rejects invalid project policy files", async () => {
     await withTempRepo(async (repo) => {
       const store = new MissionStore(repo);
