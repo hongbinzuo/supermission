@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { readFile } from "node:fs/promises";
 import YAML from "yaml";
+import { executeRunner } from "./runner.js";
 import { MissionStore } from "./store.js";
 import { ChangeTypeSchema, TaskStatusSchema } from "./types.js";
 
@@ -68,10 +69,91 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .argument("<mission-id>")
     .option("--actor <actor>", "Actor id", "worker-agent")
     .option("--note <note>", "Run note")
-    .action(async (missionId: string, options: { actor: string; note?: string }) => {
-      await storeFrom(program).recordRun(missionId, options.actor, options.note);
-      console.log(`recorded run for ${missionId}`);
-    });
+    .option("--backend <backend>", "record | shell | codex | claude", "record")
+    .option("--command <command>", "Shell command for shell runner")
+    .option("--prompt <prompt>", "Prompt for runner backends")
+    .option("--model <model>", "Runner model override")
+    .option("--profile <profile>", "Runner profile override")
+    .option("--sandbox <mode>", "Codex sandbox mode", "danger-full-access")
+    .option("--permission-mode <mode>", "Claude permission mode", "bypassPermissions")
+    .option("--tool <tool>", "Allowed tool for model runners", collect, [])
+    .option("--timeout-ms <ms>", "Runner process timeout in milliseconds", parseInteger)
+    .action(
+      async (
+        missionId: string,
+        options: {
+          actor: string;
+          note?: string;
+          backend: "record" | "shell" | "codex" | "claude";
+          command?: string;
+          prompt?: string;
+          model?: string;
+          profile?: string;
+          sandbox: "read-only" | "workspace-write" | "danger-full-access";
+          permissionMode:
+            | "acceptEdits"
+            | "auto"
+            | "bypassPermissions"
+            | "default"
+            | "dontAsk"
+            | "plan";
+          tool: string[];
+          timeoutMs?: number;
+        },
+      ) => {
+        const store = storeFrom(program);
+        if (options.backend === "record") {
+          await store.recordRun(missionId, options.actor, options.note);
+          console.log(`recorded run for ${missionId}`);
+          return;
+        }
+
+        let startedRun = false;
+        try {
+          if (options.backend === "shell" && !options.command) {
+            throw new Error("shell runner requires --command");
+          }
+          const spec = await store.beginRun(missionId, options.actor);
+          startedRun = true;
+          const execution = await executeRunner(
+            options.backend,
+            {
+              repo: store.repo,
+              mission: spec,
+              actor: options.actor,
+              note: options.note,
+            },
+            {
+              command: options.command,
+              prompt: options.prompt ?? options.note,
+              model: options.model,
+              profile: options.profile,
+              sandbox: options.sandbox,
+              permissionMode: options.permissionMode,
+              tools: options.tool,
+              timeoutMs: options.timeoutMs,
+            },
+          );
+          await store.recordRunnerExecution(missionId, options.actor, execution);
+          console.log(
+            `${options.backend} runner ${missionId} exit ${execution.exitCode} (${execution.durationMs}ms)`,
+          );
+          process.exitCode = execution.exitCode === 0 ? 0 : execution.exitCode;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (startedRun) {
+            try {
+              await store.updateStatus(missionId, "failed", options.actor, message);
+              await store.writeDebug(missionId, options.actor, message);
+            } catch {
+              // Ignore secondary cleanup errors.
+            }
+          }
+          console.error(message);
+          process.exitCode = 1;
+        }
+      },
+    );
 
   program
     .command("validate")
@@ -693,6 +775,14 @@ function parseMutationMode(
 function parseRisk(value: string): "low" | "medium" | "high" {
   if (value === "low" || value === "medium" || value === "high") return value;
   throw new Error(`invalid risk: ${value}`);
+}
+
+function parseInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`invalid positive integer: ${value}`);
+  }
+  return parsed;
 }
 
 function parseSourceKind(value: string): "human" | "agent" | "validation" | "review" | "system" {

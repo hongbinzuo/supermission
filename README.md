@@ -1,5 +1,14 @@
 # Supermission
 
+[![Project stage](https://img.shields.io/badge/stage-v0%20local--first-blue)](#v0-scope)
+[![Package status](https://img.shields.io/badge/package-private-lightgrey)](#installation--release-status)
+[![Runtime](https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.3-000000)](#toolchain)
+[![Node](https://img.shields.io/badge/node-%3E%3D%2022-339933)](#toolchain)
+[![Tests](https://img.shields.io/badge/tests-Vitest%20%2B%20Playwright%20%2B%20Stryker-6E9F18)](#verification)
+[![License](https://img.shields.io/badge/license-TBD-lightgrey)](#tbd--needs-review)
+
+[中文 README](./README.zh-CN.md)
+
 Supermission is an early implementation of Mission Control for AI Coding.
 
 The product direction is ambitious: mission records, agent orchestration,
@@ -30,16 +39,35 @@ repo-native records, linear code mutations, and strong tests.
 - Append-only `events.jsonl`, `telemetry.jsonl`, `tool-calls.jsonl`, and
   `supervisor-signals.jsonl`.
 - `tasks/` task ledger with orchestration-ready roles and mutation modes.
-- `plan.md`, `validation.log`, `debug.md`, `handoff.md`, `decisions.md`,
+- `plan.md`, `run.log`, `validation.log`, `debug.md`, `handoff.md`, `decisions.md`,
   `review.md`, `monitor.md`, and `patch.diff` artifacts.
 - A headless CLI that can create, plan, approve, run, validate, trace, inspect,
   monitor, debug, and hand off a mission.
 - Controlled change proposals through `mission change ...`.
 - Task dependencies and a linear mutation guard: sidecar tasks can run in
   parallel, but only one `linear_write` task may be running at a time.
+- Runner backends can execute shell, Codex, and Claude Code through a shared
+  mission run interface.
 
-V0 does not call Claude Code, Codex, Ruflo, Gas Town, or any model runtime yet.
-Those systems belong in runner/adapter layers.
+The core engine stays runner-neutral. Model runtimes live behind runner/adapter
+layers and are optional per mission.
+
+## Installation & Release Status
+
+Supermission is not published yet.
+
+- `package.json` is currently marked `"private": true`.
+- There is no npm, Homebrew, Docker, or binary release channel yet.
+- Current install path is local development from this repository.
+- Release documentation must be updated before the first public package.
+
+Local development:
+
+```bash
+bun install
+bun run build
+bin/mission --help
+```
 
 ## Execution Model
 
@@ -49,6 +77,33 @@ V0 is orchestration-ready but intentionally linear for code mutations.
   log analysis, and validation analysis.
 - Code/config/schema/environment mutations remain linear until merge queue,
   rollback checkpoints, review gates, and conflict handling are mature.
+
+```mermaid
+flowchart LR
+  User[Human owner] --> Spec[mission.yaml]
+  Spec --> Plan[plan.md]
+  Plan --> Gate{approve_plan}
+  Gate --> Run[runner backend]
+  Run --> Evidence[events, tool calls, telemetry, run.log]
+  Evidence --> Validate[validation.log]
+  Validate --> Review[review.md + patch.diff]
+  Review --> Handoff[handoff.md]
+```
+
+```mermaid
+flowchart TB
+  CLI[CLI / future TUI / editor adapters]
+  Engine[Local Mission Engine]
+  Store[Git-backed .missions records]
+  Runners[Runner adapters]
+  Tools[Shell / Codex / Claude Code / future plugins]
+
+  CLI --> Engine
+  Engine --> Store
+  Engine --> Runners
+  Runners --> Tools
+  Tools --> Store
+```
 
 ## Quick Start
 
@@ -62,7 +117,18 @@ bin/mission new "Add login validation" \
 
 bin/mission plan <mission-id>
 bin/mission approve <mission-id>
-bin/mission run <mission-id> --note "Implementation performed by local user or external agent"
+bin/mission run <mission-id> \
+  --backend shell \
+  --command "printf 'implemented' > runner-output.txt"
+bin/mission run <mission-id> \
+  --backend codex \
+  --profile your-profile \
+  --prompt "Reply only with codex-smoke-ok." \
+  --timeout-ms 60000
+bin/mission run <mission-id> \
+  --backend claude \
+  --prompt "Reply only with claude-smoke-ok." \
+  --timeout-ms 60000
 bin/mission validate <mission-id>
 bin/mission change propose <mission-id> \
   --reason "Acceptance criteria need one more security case" \
@@ -215,6 +281,30 @@ During development, use:
 bun run mission -- status
 ```
 
+## Product Roadmap
+
+The roadmap is milestone-based and should change with the implementation. See
+[`AGENTS.md`](./AGENTS.md) for the rule that future agents must keep this section
+and release docs current.
+
+| Milestone | Focus                                                                                                                                   | Current status |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| V0        | Local-first mission records, CLI state machine, artifacts, validation, review, handoff, rollback planning                               | In progress    |
+| V0.5      | Unified runner layer across record, shell, Codex, and Claude Code; real integration smoke tests with explicit credentials/profile setup | In progress    |
+| V0.6      | Plugin/component boundaries for runners, validators, artifact writers, policies, and workflow templates                                 | Planned        |
+| V0.7      | Stronger Git/worktree isolation, task queues, merge checkpoints, and recovery signals                                                   | Planned        |
+| V1        | Terminal TUI over the same engine, no duplicated mission logic                                                                          | Planned        |
+| V1.5      | Editor adapters after CLI/TUI contracts stabilize                                                                                       | Planned        |
+| V2        | Open-source extension points, package/release pipeline, and documented compatibility targets                                            | Planned        |
+
+Primary baseline: Factory Missions-style collaborative planning, milestone
+execution, and validation. Supermission is the open-source, local-first version
+of that direction, with repo-native records as the source of truth.
+
+Reference projects are tracked in
+[`docs/research/agent-orchestration-reference.md`](./docs/research/agent-orchestration-reference.md).
+They are used for concepts and abstractions, not as a feature checklist.
+
 ## Verification
 
 ```bash
@@ -225,9 +315,24 @@ BUN_BIN="$HOME/.bun/bin/bun" bun run test
 bun run build
 ```
 
+Real external runner smoke tests are opt-in so a missing local profile does not
+make normal unit tests flaky. To block on a real backend, enable it explicitly:
+
+```bash
+SUPERMISSION_RUNNER_SMOKE=codex SUPERMISSION_CODEX_PROFILE=your-profile bun run test
+SUPERMISSION_RUNNER_SMOKE=claude bun run test
+SUPERMISSION_RUNNER_SMOKE=all SUPERMISSION_CODEX_PROFILE=your-profile bun run test
+```
+
+`--profile <name>` on the Codex backend first tries to resolve a matching CC
+Switch codex provider by name or id. If found, Supermission creates a temporary
+`CODEX_HOME` for that child process and does not write provider secrets to the
+repo or run log. If no CC Switch provider matches, the value is passed through to
+Codex as a native `-p/--profile`.
+
 The current tests include black-box CLI integration, property-based tests,
 schema validation, failure branches, supervisor signals, and a basic trace
-performance budget. Current count: 62 Vitest tests.
+performance budget. Run `bun run test` for the current count.
 
 ## TBD / Needs Review
 
@@ -246,7 +351,7 @@ performance budget. Current count: 62 Vitest tests.
 - Secret redaction covers common env vars, JSON fields, API-key headers, Bearer
   tokens, OpenAI-style `sk-*`, GitHub, and GitLab token shapes, and can be
   extended per repo through policy.
-- Runner adapter normalization for Claude Code, Codex, Ruflo, and Gas Town.
+- Runner adapter normalization now covers shell, Claude Code, and Codex.
 - `mission change apply` safely appends approved acceptance criteria, validation
   commands, workflow steps, and controlled plan notes to mission artifacts;
   richer structured `plan.md` patching remains TBD.

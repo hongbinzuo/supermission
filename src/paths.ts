@@ -23,6 +23,7 @@ export function missionPaths(repo: string, missionId: string) {
     plan: join(root, "plan.md"),
     decisions: join(root, "decisions.md"),
     validationLog: join(root, "validation.log"),
+    runLog: join(root, "run.log"),
     review: join(root, "review.md"),
     monitor: join(root, "monitor.md"),
     debug: join(root, "debug.md"),

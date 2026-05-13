@@ -136,6 +136,9 @@ describe("MissionStore", () => {
         readFile(join(repo, ".missions", "mission-test", "validation.log"), "utf8"),
       ).resolves.toBe("");
       await expect(
+        readFile(join(repo, ".missions", "mission-test", "run.log"), "utf8"),
+      ).resolves.toContain("TBD: Run the mission with a runner.");
+      await expect(
         readFile(join(repo, ".missions", "mission-test", "patch.diff"), "utf8"),
       ).resolves.toBe("");
     });

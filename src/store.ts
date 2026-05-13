@@ -6,6 +6,7 @@ import YAML from "yaml";
 import { appendJsonl, readJsonl } from "./jsonl.js";
 import { MISSION_ROOT, missionPaths } from "./paths.js";
 import { redactSecrets } from "./redaction.js";
+import { formatRunLog, type RunnerExecution } from "./runner.js";
 import { slugify } from "./slug.js";
 import { utcNow } from "./time.js";
 import {
@@ -231,6 +232,7 @@ export class MissionStore {
     await writeFile(paths.plan, "# Plan\n\nTBD: Run `mission plan`.\n", "utf8");
     await writeFile(paths.decisions, "# Decisions\n\nTBD: Record decisions here.\n", "utf8");
     await writeFile(paths.validationLog, "", "utf8");
+    await writeFile(paths.runLog, "# Run\n\nTBD: Run the mission with a runner.\n", "utf8");
     await writeFile(paths.review, "# Review\n\nTBD: Record review findings here.\n", "utf8");
     await writeFile(paths.monitor, "# Monitor\n\nTBD: Run `mission monitor`.\n", "utf8");
     await writeFile(
@@ -908,14 +910,32 @@ export class MissionStore {
     }
   }
 
-  async recordRun(missionId: string, actor: string, note?: string): Promise<void> {
-    await this.requireMissionStatus(missionId, actor, "run", [
+  async beginRun(missionId: string, actor: string): Promise<MissionSpec> {
+    const spec = await this.requireMissionStatus(missionId, actor, "run", [
       "approved",
       "needs_review",
       "failed",
       "blocked",
     ]);
     await this.updateStatus(missionId, "running", actor);
+    return spec;
+  }
+
+  async recordRun(missionId: string, actor: string, note?: string): Promise<void> {
+    await this.beginRun(missionId, actor);
+    const now = utcNow();
+    await this.writeRunLog(missionId, actor, {
+      backend: "record",
+      command: "mission run --backend record",
+      prompt: note ?? "V0 sequential workflow placeholder.",
+      response: note ?? "Implementation recorded externally.",
+      started_at: now,
+      finished_at: now,
+      exitCode: 0,
+      durationMs: 0,
+      stdout: "",
+      stderr: "",
+    });
     await this.appendToolCall(missionId, {
       actor,
       tool: "mission.run",
@@ -924,6 +944,75 @@ export class MissionStore {
     });
     await this.appendEvent(missionId, "agent.run.recorded", actor, { note: note ?? "" });
     await this.updateStatus(missionId, "needs_review", actor);
+  }
+
+  async recordRunnerExecution(
+    missionId: string,
+    actor: string,
+    execution: RunnerExecution,
+  ): Promise<void> {
+    await this.requireMissionStatus(missionId, actor, "run", [
+      "running",
+      "needs_review",
+      "failed",
+      "blocked",
+    ]);
+    await this.writeRunLog(missionId, actor, execution);
+    await this.appendToolCall(missionId, {
+      actor,
+      tool: `runner.${execution.backend}`,
+      input_summary: execution.prompt ?? execution.command ?? "Runner execution.",
+      command: execution.command ?? "",
+      exit_code: execution.exitCode,
+      duration_ms: execution.durationMs,
+      stdout_chars: execution.stdout.length,
+      stderr_chars: execution.stderr.length,
+      status: execution.exitCode === 0 ? "completed" : "failed",
+    });
+    await this.appendEvent(missionId, "runner.executed", actor, {
+      backend: execution.backend,
+      command: execution.command ?? "",
+      artifact: "run.log",
+      exit_code: execution.exitCode,
+      duration_ms: execution.durationMs,
+    });
+    if (execution.exitCode === 0) {
+      await this.updateStatus(missionId, "needs_review", actor);
+    } else {
+      await this.updateStatus(missionId, "failed", actor, "runner execution failed");
+      await this.writeDebug(
+        missionId,
+        actor,
+        `Runner ${execution.backend} failed with exit code ${execution.exitCode}.`,
+      );
+    }
+  }
+
+  async writeRunLog(missionId: string, actor: string, execution: RunnerExecution): Promise<string> {
+    const spec = await this.readMission(missionId);
+    const policy = await this.readPolicy();
+    const redactedExecution = {
+      ...execution,
+      command: execution.command
+        ? redactSecrets(execution.command, policy.redaction.patterns)
+        : undefined,
+      prompt: execution.prompt
+        ? redactSecrets(execution.prompt, policy.redaction.patterns)
+        : undefined,
+      response: execution.response
+        ? redactSecrets(execution.response, policy.redaction.patterns)
+        : undefined,
+      stdout: redactSecrets(execution.stdout, policy.redaction.patterns),
+      stderr: redactSecrets(execution.stderr, policy.redaction.patterns),
+    };
+    const text = formatRunLog({
+      missionId: spec.id,
+      goal: spec.goal,
+      actor,
+      execution: redactedExecution,
+    });
+    await writeFile(this.paths(missionId).runLog, text, "utf8");
+    return text;
   }
 
   async validate(
@@ -1301,6 +1390,7 @@ export class MissionStore {
       "## Evidence",
       "",
       "- Plan: `plan.md`",
+      "- Run: `run.log`",
       "- Events: `events.jsonl`",
       "- Tool calls: `tool-calls.jsonl`",
       "- Validation: `validation.log`",
@@ -1779,6 +1869,7 @@ export class MissionStore {
         monitor: this.paths(missionId).monitor,
         scope_audit: this.paths(missionId).scopeAudit,
         plan: this.paths(missionId).plan,
+        run: this.paths(missionId).runLog,
         validation: this.paths(missionId).validationLog,
         review: this.paths(missionId).review,
         handoff: this.paths(missionId).handoff,

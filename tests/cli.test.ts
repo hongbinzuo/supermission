@@ -1,7 +1,18 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { bunBin, runMission, runProcess, withTempRepo } from "./helpers.js";
+
+const runnerSmokeBackends = new Set(
+  (process.env.SUPERMISSION_RUNNER_SMOKE ?? "")
+    .split(",")
+    .map((backend) => backend.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+function shouldRunExternalSmoke(backend: "codex" | "claude"): boolean {
+  return runnerSmokeBackends.has("all") || runnerSmokeBackends.has(backend);
+}
 
 describe("mission CLI", () => {
   it("runs the V0 command flow as a black-box CLI", async () => {
@@ -52,6 +63,122 @@ describe("mission CLI", () => {
       expect(tasks.stdout).toContain("task-001 ready worker-agent");
     });
   });
+
+  it("executes the shell runner and records run evidence", async () => {
+    await withTempRepo(async (repo) => {
+      await runMission(repo, [
+        "new",
+        "Shell runner mission",
+        "--id",
+        "mission-shell-runner",
+        "--validation",
+        `${bunBin} --version`,
+      ]);
+      await runMission(repo, ["plan", "mission-shell-runner"]);
+      await runMission(repo, ["approve", "mission-shell-runner"]);
+
+      const result = await runMission(repo, [
+        "run",
+        "mission-shell-runner",
+        "--backend",
+        "shell",
+        "--command",
+        "printf 'shell-runner' > runner-output.txt",
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(await readFile(join(repo, "runner-output.txt"), "utf8")).toBe("shell-runner");
+
+      const runLog = await readFile(
+        join(repo, ".missions", "mission-shell-runner", "run.log"),
+        "utf8",
+      );
+      expect(runLog).toContain("Backend: shell");
+      expect(runLog).toContain("shell-runner");
+
+      const status = await runMission(repo, ["status", "mission-shell-runner"]);
+      expect(status.stdout).toContain("needs_review");
+
+      await runMission(repo, ["validate", "mission-shell-runner"]);
+      await runMission(repo, ["handoff", "mission-shell-runner"]);
+      const completed = await runMission(repo, ["status", "mission-shell-runner"]);
+      expect(completed.stdout).toContain("completed");
+    });
+  }, 120000);
+
+  const codexSmoke = shouldRunExternalSmoke("codex") ? it : it.skip;
+  codexSmoke(
+    "smokes the codex runner backend",
+    async () => {
+      await withTempRepo(async (repo) => {
+        await runMission(repo, ["new", "Codex runner mission", "--id", "mission-codex-runner"]);
+        await runMission(repo, ["plan", "mission-codex-runner"]);
+        await runMission(repo, ["approve", "mission-codex-runner"]);
+
+        const args = [
+          "run",
+          "mission-codex-runner",
+          "--backend",
+          "codex",
+          "--prompt",
+          "Reply only with codex-smoke-ok.",
+          "--timeout-ms",
+          process.env.SUPERMISSION_RUNNER_TIMEOUT_MS ?? "60000",
+        ];
+        if (process.env.SUPERMISSION_CODEX_PROFILE) {
+          args.push("--profile", process.env.SUPERMISSION_CODEX_PROFILE);
+        }
+        if (process.env.SUPERMISSION_CODEX_MODEL) {
+          args.push("--model", process.env.SUPERMISSION_CODEX_MODEL);
+        }
+
+        const result = await runMission(repo, args);
+        const runLog = await readFile(
+          join(repo, ".missions", "mission-codex-runner", "run.log"),
+          "utf8",
+        );
+        expect(result.exitCode, `${result.stderr}\n${result.stdout}\n${runLog}`).toBe(0);
+        expect(runLog).toContain("Backend: codex");
+        expect(runLog).toContain("codex-smoke-ok");
+      });
+    },
+    120000,
+  );
+
+  const claudeSmoke = shouldRunExternalSmoke("claude") ? it : it.skip;
+  claudeSmoke(
+    "smokes the claude runner backend",
+    async () => {
+      await withTempRepo(async (repo) => {
+        await runMission(repo, ["new", "Claude runner mission", "--id", "mission-claude-runner"]);
+        await runMission(repo, ["plan", "mission-claude-runner"]);
+        await runMission(repo, ["approve", "mission-claude-runner"]);
+
+        const args = [
+          "run",
+          "mission-claude-runner",
+          "--backend",
+          "claude",
+          "--prompt",
+          "Reply only with claude-smoke-ok.",
+          "--timeout-ms",
+          process.env.SUPERMISSION_RUNNER_TIMEOUT_MS ?? "60000",
+        ];
+        if (process.env.SUPERMISSION_CLAUDE_MODEL) {
+          args.push("--model", process.env.SUPERMISSION_CLAUDE_MODEL);
+        }
+
+        const result = await runMission(repo, args);
+        const runLog = await readFile(
+          join(repo, ".missions", "mission-claude-runner", "run.log"),
+          "utf8",
+        );
+        expect(result.exitCode, `${result.stderr}\n${result.stdout}\n${runLog}`).toBe(0);
+        expect(runLog).toContain("Backend: claude");
+        expect(runLog).toContain("claude-smoke-ok");
+      });
+    },
+    120000,
+  );
 
   it("returns a useful error for invalid inspect index", async () => {
     await withTempRepo(async (repo) => {
