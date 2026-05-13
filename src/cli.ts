@@ -107,6 +107,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--prompt <prompt>", "Prompt for runner backends")
     .option("--model <model>", "Runner model override")
     .option("--profile <profile>", "Runner profile override")
+    .option(
+      "--fallback-profile <profile>",
+      "Additional profile to try if the first profile fails",
+      collect,
+      [],
+    )
     .option("--sandbox <mode>", "Codex sandbox mode", "danger-full-access")
     .option("--permission-mode <mode>", "Claude permission mode", "bypassPermissions")
     .option("--tool <tool>", "Allowed tool for model runners", collect, [])
@@ -122,6 +128,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
           prompt?: string;
           model?: string;
           profile?: string;
+          fallbackProfile: string[];
           sandbox: "read-only" | "workspace-write" | "danger-full-access";
           permissionMode:
             | "acceptEdits"
@@ -161,6 +168,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
               prompt: options.prompt ?? options.note,
               model: options.model,
               profile: options.profile,
+              fallbackProfiles: options.fallbackProfile,
               sandbox: options.sandbox,
               permissionMode: options.permissionMode,
               tools: options.tool,

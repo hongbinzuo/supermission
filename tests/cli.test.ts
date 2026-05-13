@@ -138,6 +138,9 @@ describe("mission CLI", () => {
         if (process.env.SUPERMISSION_CODEX_PROFILE) {
           args.push("--profile", process.env.SUPERMISSION_CODEX_PROFILE);
         }
+        if (process.env.SUPERMISSION_CODEX_FALLBACK_PROFILE) {
+          args.push("--fallback-profile", process.env.SUPERMISSION_CODEX_FALLBACK_PROFILE);
+        }
         if (process.env.SUPERMISSION_CODEX_MODEL) {
           args.push("--model", process.env.SUPERMISSION_CODEX_MODEL);
         }

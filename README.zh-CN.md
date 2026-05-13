@@ -118,6 +118,7 @@ bin/mission run <mission-id> \
 bin/mission run <mission-id> \
   --backend codex \
   --profile your-profile \
+  --fallback-profile another-profile \
   --prompt "Reply only with codex-smoke-ok." \
   --timeout-ms 60000
 bin/mission run <mission-id> \
@@ -232,6 +233,9 @@ Codex backend 的 `--profile <name>` 会先按名称或 id 匹配 CC Switch 的 
 provider。匹配成功时，Supermission 会为子进程创建临时 `CODEX_HOME`，不会把
 provider secret 写进仓库或 run log。匹配不到时，这个值会继续作为 Codex 原生
 `-p/--profile` 传入。
+
+需要自动换 profile 时，可以重复传入 `--fallback-profile`；前一个 profile 失败后，
+runner 会继续尝试后面的 profile，全部失败才让 mission run 失败。
 
 测试覆盖黑盒 CLI 集成、property-based tests、schema validation、失败分支、
 supervisor signals 和基础 trace 性能预算。当前测试数量以 `bun run test` 输出为准。

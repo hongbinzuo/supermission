@@ -50,6 +50,7 @@ export type RunnerOptions = {
   prompt?: string;
   model?: string;
   profile?: string;
+  fallbackProfiles?: string[];
   sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   permissionMode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
   tools?: string[];
@@ -243,12 +244,38 @@ async function executeCodexRunner(
   context: RunnerContext,
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
+  const profiles = [options.profile, ...(options.fallbackProfiles ?? [])].filter(
+    (profile): profile is string => Boolean(profile),
+  );
+  if (profiles.length === 0) {
+    return executeCodexRunnerAttempt(context, options);
+  }
+
+  const failedAttempts: RunnerExecution[] = [];
+  for (const profile of profiles) {
+    const execution = await executeCodexRunnerAttempt(context, options, profile);
+    if (execution.exitCode === 0) {
+      return failedAttempts.length === 0
+        ? execution
+        : withPriorAttemptStderr(execution, failedAttempts);
+    }
+    failedAttempts.push(execution);
+  }
+
+  const finalAttempt = failedAttempts[failedAttempts.length - 1];
+  if (!finalAttempt) return executeCodexRunnerAttempt(context, options);
+  return withPriorAttemptStderr(finalAttempt, failedAttempts.slice(0, -1));
+}
+
+async function executeCodexRunnerAttempt(
+  context: RunnerContext,
+  options: RunnerOptions,
+  profile?: string,
+): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildMissionPrompt(context);
   const tempDir = await mkdtemp(join(tmpdir(), "supermission-codex-"));
   const outputPath = join(tempDir, "last-message.txt");
-  const ccSwitchProfile = options.profile
-    ? await createCcSwitchCodexHome(options.profile, tempDir)
-    : undefined;
+  const ccSwitchProfile = profile ? await createCcSwitchCodexHome(profile, tempDir) : undefined;
   const args = [
     "exec",
     "-C",
@@ -259,7 +286,7 @@ async function executeCodexRunner(
     outputPath,
   ];
   if (options.model) args.push("-m", options.model);
-  if (options.profile && !ccSwitchProfile) args.push("-p", options.profile);
+  if (profile && !ccSwitchProfile) args.push("-p", profile);
   if (options.sandbox) args.push("-s", options.sandbox);
   if (options.tools && options.tools.length > 0) {
     args.push("--tools", options.tools.join(" "));
@@ -291,6 +318,25 @@ async function executeCodexRunner(
     durationMs: Math.round(performance.now() - started),
     stdout: result.stdout,
     stderr: result.stderr,
+  };
+}
+
+function withPriorAttemptStderr(
+  execution: RunnerExecution,
+  failedAttempts: RunnerExecution[],
+): RunnerExecution {
+  if (failedAttempts.length === 0) return execution;
+  const summaries = failedAttempts
+    .map(
+      (attempt) =>
+        `prior ${attempt.backend} attempt failed: exit ${attempt.exitCode}, command: ${
+          attempt.command ?? "unknown"
+        }`,
+    )
+    .join("\n");
+  return {
+    ...execution,
+    stderr: `${summaries}\n${execution.stderr}`,
   };
 }
 

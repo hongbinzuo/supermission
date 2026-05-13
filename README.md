@@ -123,6 +123,7 @@ bin/mission run <mission-id> \
 bin/mission run <mission-id> \
   --backend codex \
   --profile your-profile \
+  --fallback-profile another-profile \
   --prompt "Reply only with codex-smoke-ok." \
   --timeout-ms 60000
 bin/mission run <mission-id> \
@@ -336,6 +337,9 @@ Switch codex provider by name or id. If found, Supermission creates a temporary
 `CODEX_HOME` for that child process and does not write provider secrets to the
 repo or run log. If no CC Switch provider matches, the value is passed through to
 Codex as a native `-p/--profile`.
+
+Use `--fallback-profile` repeatedly when a runner should keep trying alternate
+profiles before failing the mission run.
 
 The current tests include black-box CLI integration, property-based tests,
 schema validation, failure branches, supervisor signals, and a basic trace
