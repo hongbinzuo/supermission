@@ -71,6 +71,16 @@ READMEs.
 - If a backend credential is missing or invalid, fail clearly and keep the
   runner test opt-in rather than silently pretending the backend is verified.
 
+## Release And Data Decisions
+
+- License is Apache-2.0.
+- Public release path should be npm package first, GitHub Releases second,
+  Homebrew/Docker later.
+- Do not remove `"private": true` until release gates, package contents, README
+  install docs, and secret checks are ready.
+- Database/search/vector stores may be added only as rebuildable indexes or
+  caches derived from `.missions/`.
+
 ## Quality Rules
 
 Supermission capability work should be evaluated while it is being built, not

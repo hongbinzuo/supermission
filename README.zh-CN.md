@@ -5,7 +5,7 @@
 [![运行时](https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.3-000000)](#工具链)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-339933)](#工具链)
 [![测试](https://img.shields.io/badge/tests-Vitest%20%2B%20Playwright%20%2B%20Stryker-6E9F18)](#验证)
-[![许可证](https://img.shields.io/badge/license-TBD-lightgrey)](#待确认)
+[![许可证](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
 [English README](./README.md)
 
@@ -40,7 +40,10 @@ Bun-first TypeScript、本地优先、Git-backed `.missions/` 记录、线性代
 - `package.json` 目前是 `"private": true`。
 - 还没有 npm、Homebrew、Docker 或二进制发布。
 - 当前使用方式是从仓库本地开发运行。
-- 第一次公开发布前，必须补齐 release 文档和安装说明。
+- 推荐的第一条公开发布路径是 npm package，然后 GitHub Releases。Homebrew 和 Docker
+  等 CLI 合约、文件布局和 runner 配置稳定后再做。
+- 发布和数据决策见
+  [`docs/architecture/release-and-data-decisions.md`](./docs/architecture/release-and-data-decisions.md)。
 
 本地开发：
 
@@ -265,9 +268,10 @@ supervisor signals 和基础 trace 性能预算。`bun run test:capability` 会�
 Supermission 产品能力 baseline，不调用外部模型服务。当前完整测试数量以
 `bun run test` 输出为准。
 
-## 待确认
+## 决策与剩余工作
 
-- License 还未确定。
-- 公开发布方式还未确定。
-- Codex/Claude Code 等真实后端 smoke test 需要显式 profile 或凭证配置，不能泄露密钥。
-- 数据库后续只能先作为索引层，不能取代 `.missions/` 的 source of truth。
+- License: Apache-2.0。
+- 公开发布路径：先 npm package，再 GitHub Releases；Homebrew/Docker 后置。
+- Codex/Claude Code 等真实后端 smoke test 保持显式 opt-in；缺 profile 或凭证要清晰失败，不能泄露密钥。
+- 数据库后续只能作为可重建索引/cache，不能取代 `.missions/` 的 source of truth。
+- validation command 为空时到底应标记 `blocked` 还是 `needs_decision`，仍需结合真实使用继续评估。

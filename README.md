@@ -5,7 +5,7 @@
 [![Runtime](https://img.shields.io/badge/runtime-Bun%20%3E%3D%201.3-000000)](#toolchain)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-339933)](#toolchain)
 [![Tests](https://img.shields.io/badge/tests-Vitest%20%2B%20Playwright%20%2B%20Stryker-6E9F18)](#verification)
-[![License](https://img.shields.io/badge/license-TBD-lightgrey)](#tbd--needs-review)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
 [中文 README](./README.zh-CN.md)
 
@@ -60,7 +60,11 @@ Supermission is not published yet.
 - `package.json` is currently marked `"private": true`.
 - There is no npm, Homebrew, Docker, or binary release channel yet.
 - Current install path is local development from this repository.
-- Release documentation must be updated before the first public package.
+- Recommended first public release path is npm package, then GitHub Releases.
+  Homebrew and Docker should wait until CLI contracts and runner config are
+  stable.
+- Release and data decisions are tracked in
+  [`docs/architecture/release-and-data-decisions.md`](./docs/architecture/release-and-data-decisions.md).
 
 Local development:
 
@@ -378,11 +382,17 @@ performance budget. `bun run test:capability` runs the current Supermission
 product capability baseline without external model calls. Run `bun run test` for
 the current full count.
 
-## TBD / Needs Review
+## Decisions And Remaining Work
 
 - Core workflow gates are enforced: `approve_plan` requires `planned`, `run`
   requires an approved/review/recovery state, and completing handoff requires
   `validated`.
+- License: Apache-2.0.
+- Public release path: npm first, then GitHub Releases; Homebrew/Docker later.
+- Real external runner smoke tests stay explicit and opt-in. Missing or invalid
+  credentials must fail clearly, and secrets must never be printed or committed.
+- `.missions/` remains the source of truth. A future database may only be a
+  rebuildable index/cache.
 - Whether validation without commands should be `blocked` or `needs_decision`.
 - `mission inspect` supports zero-based indexes and stable append-only record ids
   such as `event-000001`; new JSONL records persist those ids on write.

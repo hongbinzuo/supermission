@@ -4,6 +4,7 @@
   "description": "Local-first mission records for AI-assisted software work.",
   "type": "module",
   "private": true,
+  "license": "Apache-2.0",
   "bin": {
     "mission": "./bin/mission"
   },
