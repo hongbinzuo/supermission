@@ -12,11 +12,25 @@ import {
   type RunnerConfig,
   type RunnerOptions,
 } from "./runner.js";
+import { redactSecrets } from "./redaction.js";
 import { MissionStore } from "./store.js";
 import { ChangeTypeSchema, TaskStatusSchema } from "./types.js";
 
 type GlobalOptions = {
   repo: string;
+};
+
+type RunnerCliOptions = {
+  backend?: RunnerBackend;
+  command?: string;
+  prompt?: string;
+  model?: string;
+  profile?: string;
+  fallbackProfile: string[];
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  permissionMode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
+  tool: string[];
+  timeoutMs?: number;
 };
 
 export async function runCli(argv = process.argv.slice(2)): Promise<void> {
@@ -164,6 +178,64 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       },
     );
 
+  runnerCommand
+    .command("smoke")
+    .description("Run a backend smoke test without creating a mission")
+    .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
+    .option("--command <command>", "Shell command for shell runner")
+    .option("--prompt <prompt>", "Smoke prompt", "Reply only with runner-smoke-ok.")
+    .option("--model <model>", "Runner model override")
+    .option("--profile <profile>", "Runner profile override")
+    .option(
+      "--fallback-profile <profile>",
+      "Additional profile to try if the first profile fails",
+      collect,
+      [],
+    )
+    .option("--sandbox <mode>", "Codex sandbox mode", parseSandbox)
+    .option("--permission-mode <mode>", "Claude permission mode", parsePermissionMode)
+    .option("--tool <tool>", "Allowed tool for model runners", collect, [])
+    .option("--timeout-ms <ms>", "Runner process timeout in milliseconds", parseInteger)
+    .action(async (options: RunnerCliOptions) => {
+      const store = storeFrom(program);
+      const runnerConfig = await store.readRunnerConfig();
+      const backend = options.backend ?? runnerConfig.default_backend;
+      const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
+      if (backend === "shell" && !mergedOptions.command) {
+        throw new Error("shell runner requires --command");
+      }
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+      const execution = await executeRunner(
+        backend,
+        {
+          repo: store.repo,
+          actor: "runner-smoke",
+          mission: {
+            id: "runner-smoke",
+            goal: "Runner smoke test",
+            status: "approved",
+            owner: "local-user",
+            created_at: now,
+            updated_at: now,
+            acceptance: ["Runner returns a successful response"],
+            validation_commands: [],
+            workflow: ["run"],
+            actors: ["runner-smoke"],
+          },
+        },
+        mergedOptions,
+      );
+      const policy = await store.readPolicy();
+      console.log(`${backend} smoke exit ${execution.exitCode} (${execution.durationMs}ms)`);
+      if (execution.response) {
+        console.log(redactSecrets(execution.response, policy.redaction.patterns).trimEnd());
+      }
+      if (execution.exitCode !== 0 && execution.stderr.trim().length > 0) {
+        console.error(redactSecrets(execution.stderr, policy.redaction.patterns).trimEnd());
+      }
+      process.exitCode = execution.exitCode === 0 ? 0 : execution.exitCode;
+    });
+
   program
     .command("run")
     .description("Record a V0 sequential implementation run")
@@ -188,26 +260,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .action(
       async (
         missionId: string,
-        options: {
+        options: RunnerCliOptions & {
           actor: string;
           note?: string;
-          backend?: RunnerBackend;
-          command?: string;
-          prompt?: string;
-          model?: string;
-          profile?: string;
-          fallbackProfile: string[];
-          sandbox?: "read-only" | "workspace-write" | "danger-full-access";
-          permissionMode:
-            | "acceptEdits"
-            | "auto"
-            | "bypassPermissions"
-            | "default"
-            | "dontAsk"
-            | "plan"
-            | undefined;
-          tool: string[];
-          timeoutMs?: number;
         },
       ) => {
         const store = storeFrom(program);

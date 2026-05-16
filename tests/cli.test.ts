@@ -151,6 +151,22 @@ describe("mission CLI", () => {
     });
   });
 
+  it("runs a shell runner smoke test without creating a mission", async () => {
+    await withTempRepo(async (repo) => {
+      const result = await runMission(repo, [
+        "runner",
+        "smoke",
+        "--backend",
+        "shell",
+        "--command",
+        "printf runner-smoke-ok",
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("shell smoke exit 0");
+      expect(result.stdout).toContain("runner-smoke-ok");
+    });
+  });
+
   const codexSmoke = shouldRunExternalSmoke("codex") ? it : it.skip;
   codexSmoke(
     "smokes the codex runner backend",

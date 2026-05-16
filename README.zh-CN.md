@@ -179,6 +179,7 @@ Runner 诊断：
 - `mission runner profiles`
 - `mission runner config init`
 - `mission runner config show`
+- `mission runner smoke`
 
 Git 证据和隔离：
 

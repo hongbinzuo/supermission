@@ -47,6 +47,8 @@ READMEs.
 
 - Real integration tests are required for external runner backends when the
   required credentials/profile are explicitly configured.
+- Use `mission runner smoke` for fast backend/profile checks before a full
+  mission run when changing runner integration.
 - Normal tests should not hit external model services by default. Use
   `SUPERMISSION_RUNNER_SMOKE=codex|claude|all` plus explicit profile/model env
   when a real backend should block the run.

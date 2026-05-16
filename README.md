@@ -173,6 +173,7 @@ bin/mission runner config init \
   --fallback-profile another-profile \
   --timeout-ms 60000
 bin/mission runner config show
+bin/mission runner smoke --backend codex --profile current --timeout-ms 60000
 bin/mission handoff <mission-id>
 bin/mission trace <mission-id>
 bin/mission inspect <mission-id> events 0
@@ -280,6 +281,7 @@ Runner diagnostics:
 - `mission runner profiles`
 - `mission runner config init`
 - `mission runner config show`
+- `mission runner smoke`
 
 Git evidence and isolation:
 
