@@ -38,6 +38,7 @@ Do not remove `"private": true` until:
 - README installation instructions include npm usage and local development
 - release gates pass locally and in CI
 - no secrets or ignored runtime files are included in package output
+- `npm pack --dry-run` shows only intended files
 
 ## Real Runner Smoke Tests
 

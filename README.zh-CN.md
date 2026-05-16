@@ -53,6 +53,13 @@ bun run build
 bin/mission --help
 ```
 
+发布打包 dry run：
+
+```bash
+bun run build
+npm pack --dry-run
+```
+
 ## 工具链
 
 - Bun

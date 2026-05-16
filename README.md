@@ -74,6 +74,13 @@ bun run build
 bin/mission --help
 ```
 
+Release packaging dry run:
+
+```bash
+bun run build
+npm pack --dry-run
+```
+
 ## Execution Model
 
 V0 is orchestration-ready but intentionally linear for code mutations.
