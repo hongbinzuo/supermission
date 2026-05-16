@@ -226,7 +226,41 @@ Supermission mapping:
 - Add real integration smoke tests for external backends with explicit profiles.
 - Treat `run.log`, `tool-calls.jsonl`, `telemetry.jsonl`, and
   `supervisor-signals.jsonl` as required evidence.
+- Every place an agent appears needs a footprint map: actor, backend, prompt or
+  command summary, tool calls, changed files, artifacts, validation evidence,
+  review result, retry history, and handoff summary should be reconstructable
+  without reading chat history.
+- Agent results need an evaluation mechanism. The first evaluation set should be
+  built from real missions: goal, acceptance criteria, baseline files, expected
+  artifact evidence, validation commands, review rubric, and pass/fail labels.
 - Design plugin boundaries before adding many plugins.
 - Build TUI/control surfaces over existing records instead of inventing a second
   state store.
 - Keep roadmap changes tied to concrete milestones.
+
+Scheduling and communication tradeoffs are tracked in
+[`agent-scheduling-communication-ui-performance.md`](./agent-scheduling-communication-ui-performance.md).
+
+## Agent Footprints And Evaluation Sets
+
+Agent orchestration is not useful if the user cannot inspect where agents acted
+or judge whether the result is good. Supermission should treat these as core
+records:
+
+- Footprint map: a mission-level graph from actor to task, runner backend, tool
+  calls, files changed, artifacts produced, validation commands, review findings,
+  retries, and handoff.
+- Evaluation record: a structured assessment of agent output against acceptance
+  criteria, validation evidence, scope discipline, review findings, and handoff
+  quality.
+- Evaluation set: reusable mission fixtures collected from real work and small
+  synthetic cases. Each case should include goal, initial context, allowed scope,
+  expected evidence, validation commands, review rubric, and labels.
+
+Near-term implementation path:
+
+1. Add footprint fields to runner/tool-call records.
+2. Generate `footprint.md` from existing event/tool/telemetry/artifact records.
+3. Add `evals/` fixtures that can replay small mission scenarios.
+4. Add `mission eval run` to score a completed mission against a rubric.
+5. Promote high-signal real missions into regression eval cases.

@@ -201,7 +201,7 @@ Git 证据和隔离：
 | V0     | 本地 mission records、CLI 状态机、artifacts、验证、评审、交接、回退计划        | 进行中   |
 | V0.5   | 统一 runner 层，接入 record、shell、Codex、Claude Code；补真实集成 smoke tests | 进行中   |
 | V0.6   | runner、validator、artifact writer、policy、workflow template 的插件/组件边界  | 计划中   |
-| V0.7   | Git/worktree 隔离、任务队列、merge checkpoint、恢复信号                        | 计划中   |
+| V0.7   | Agent 足迹图、结果测评记录、可复用 eval set、Git/worktree 隔离、任务队列       | 计划中   |
 | V1     | Terminal TUI 复用同一个 engine，不复制 mission logic                           | 计划中   |
 | V1.5   | CLI/TUI 合约稳定后做 editor adapters                                           | 计划中   |
 | V2     | 开源扩展点、安装发布流水线、兼容性目标文档                                     | 计划中   |
@@ -212,6 +212,10 @@ Supermission 的定位是这个方向的开源、本地优先版本，`.missions
 参考项目调研见
 [`docs/research/agent-orchestration-reference.md`](./docs/research/agent-orchestration-reference.md)。
 这些项目用于抽象方法参考，不作为功能堆叠清单。
+Token 和运行性能策略见
+[`docs/research/token-performance-strategy.md`](./docs/research/token-performance-strategy.md)。
+Agent 调度、通信和前端性能取舍见
+[`docs/research/agent-scheduling-communication-ui-performance.md`](./docs/research/agent-scheduling-communication-ui-performance.md)。
 
 ## 验证
 

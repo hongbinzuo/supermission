@@ -985,20 +985,38 @@ export class MissionStore {
     await this.appendToolCall(missionId, {
       actor,
       tool: `runner.${execution.backend}`,
+      footprint_stage: "run",
+      footprint_artifact: "run.log",
+      evaluation_subject: "runner_execution",
       input_summary: execution.prompt ?? execution.command ?? "Runner execution.",
       command: execution.command ?? "",
       exit_code: execution.exitCode,
       duration_ms: execution.durationMs,
       stdout_chars: execution.stdout.length,
       stderr_chars: execution.stderr.length,
+      response_chars: execution.response?.length ?? 0,
+      tokens_used: execution.tokensUsed ?? null,
       status: execution.exitCode === 0 ? "completed" : "failed",
+    });
+    await this.appendTelemetry(missionId, {
+      metric: "runner.executed",
+      backend: execution.backend,
+      exit_code: execution.exitCode,
+      duration_ms: execution.durationMs,
+      tokens_used: execution.tokensUsed ?? null,
+      stdout_chars: execution.stdout.length,
+      stderr_chars: execution.stderr.length,
+      response_chars: execution.response?.length ?? 0,
     });
     await this.appendEvent(missionId, "runner.executed", actor, {
       backend: execution.backend,
       command: execution.command ?? "",
       artifact: "run.log",
+      footprint_artifact: "run.log",
+      evaluation_subject: "runner_execution",
       exit_code: execution.exitCode,
       duration_ms: execution.durationMs,
+      tokens_used: execution.tokensUsed ?? null,
     });
     if (execution.exitCode === 0) {
       await this.updateStatus(missionId, "needs_review", actor);

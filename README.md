@@ -310,7 +310,7 @@ and release docs current.
 | V0        | Local-first mission records, CLI state machine, artifacts, validation, review, handoff, rollback planning                               | In progress    |
 | V0.5      | Unified runner layer across record, shell, Codex, and Claude Code; real integration smoke tests with explicit credentials/profile setup | In progress    |
 | V0.6      | Plugin/component boundaries for runners, validators, artifact writers, policies, and workflow templates                                 | Planned        |
-| V0.7      | Stronger Git/worktree isolation, task queues, merge checkpoints, and recovery signals                                                   | Planned        |
+| V0.7      | Agent footprint maps, result evaluation records, reusable eval sets, stronger Git/worktree isolation, task queues, merge checkpoints    | Planned        |
 | V1        | Terminal TUI over the same engine, no duplicated mission logic                                                                          | Planned        |
 | V1.5      | Editor adapters after CLI/TUI contracts stabilize                                                                                       | Planned        |
 | V2        | Open-source extension points, package/release pipeline, and documented compatibility targets                                            | Planned        |
@@ -322,6 +322,10 @@ of that direction, with repo-native records as the source of truth.
 Reference projects are tracked in
 [`docs/research/agent-orchestration-reference.md`](./docs/research/agent-orchestration-reference.md).
 They are used for concepts and abstractions, not as a feature checklist.
+Token/runtime performance strategy is tracked in
+[`docs/research/token-performance-strategy.md`](./docs/research/token-performance-strategy.md).
+Agent scheduling, communication, and UI performance tradeoffs are tracked in
+[`docs/research/agent-scheduling-communication-ui-performance.md`](./docs/research/agent-scheduling-communication-ui-performance.md).
 
 ## Verification
 

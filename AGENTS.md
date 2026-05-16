@@ -23,6 +23,12 @@ reference material for abstractions and tradeoffs only.
   policies, workflow templates, and future UI adapters.
 - `.missions/` remains the source of truth. A database may be added later as an
   index/cache, not as the primary mission record.
+- Every agent-facing feature should preserve enough structured evidence to build
+  a footprint map and evaluate the agent's result later.
+- Runner and agent changes should record token/runtime evidence when available
+  and avoid designs that make cost attribution impossible.
+- Prefer code scheduling plus durable mission records over free-form
+  agent-to-agent chat until eval results prove otherwise.
 - Code mutations stay linear until worktree isolation, merge checks, rollback,
   and review gates are mature.
 - Sidecar work may become parallel when it does not mutate shared code.

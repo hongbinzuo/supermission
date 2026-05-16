@@ -167,6 +167,29 @@ describe("mission CLI", () => {
     });
   });
 
+  it("retries runner smoke failures according to retry policy", async () => {
+    await withTempRepo(async (repo) => {
+      const result = await runMission(repo, [
+        "runner",
+        "smoke",
+        "--backend",
+        "shell",
+        "--command",
+        `${bunBin} -e "const fs = require('fs'); const file = 'retry-count.txt'; const count = fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0; fs.writeFileSync(file, String(count + 1)); if (count === 0) process.exit(1); console.log('retry-ok');"`,
+        "--retry-attempts",
+        "2",
+        "--retry-delay-ms",
+        "0",
+        "--retry-exit-code",
+        "1",
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("shell smoke exit 0");
+      expect(result.stdout).toContain("retry-ok");
+      expect(await readFile(join(repo, "retry-count.txt"), "utf8")).toBe("2");
+    });
+  });
+
   const codexSmoke = shouldRunExternalSmoke("codex") ? it : it.skip;
   codexSmoke(
     "smokes the codex runner backend",

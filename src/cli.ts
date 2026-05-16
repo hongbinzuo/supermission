@@ -31,6 +31,9 @@ type RunnerCliOptions = {
   permissionMode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
   tool: string[];
   timeoutMs?: number;
+  retryAttempts?: number;
+  retryDelayMs?: number;
+  retryExitCode: number[];
 };
 
 export async function runCli(argv = process.argv.slice(2)): Promise<void> {
@@ -145,6 +148,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--permission-mode <mode>", "Default Claude permission mode")
     .option("--tool <tool>", "Default allowed tool for model runners", collect, [])
     .option("--timeout-ms <ms>", "Default runner timeout in milliseconds", parseInteger)
+    .option("--retry-attempts <count>", "Default runner attempts", parseInteger)
+    .option("--retry-delay-ms <ms>", "Delay between retry attempts", parseNonNegativeInteger)
+    .option("--retry-exit-code <code>", "Exit code that should be retried", collectInteger, [])
     .action(
       async (options: {
         defaultBackend: RunnerBackend;
@@ -157,6 +163,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         permissionMode?: string;
         tool: string[];
         timeoutMs?: number;
+        retryAttempts?: number;
+        retryDelayMs?: number;
+        retryExitCode: number[];
       }) => {
         const backendConfig: RunnerBackendConfig = {
           ...(options.command ? { command: options.command } : {}),
@@ -170,6 +179,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
             : {}),
           tools: options.tool,
           ...(options.timeoutMs ? { timeout_ms: options.timeoutMs } : {}),
+          retry: {
+            attempts: options.retryAttempts ?? 1,
+            delay_ms: options.retryDelayMs ?? 0,
+            exit_codes: options.retryExitCode.length > 0 ? options.retryExitCode : [1, 124],
+          },
         };
         const config = defaultRunnerConfig(options.defaultBackend);
         config.backends[options.defaultBackend] = backendConfig;
@@ -196,6 +210,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--permission-mode <mode>", "Claude permission mode", parsePermissionMode)
     .option("--tool <tool>", "Allowed tool for model runners", collect, [])
     .option("--timeout-ms <ms>", "Runner process timeout in milliseconds", parseInteger)
+    .option("--retry-attempts <count>", "Runner attempts", parseInteger)
+    .option("--retry-delay-ms <ms>", "Delay between retry attempts", parseNonNegativeInteger)
+    .option("--retry-exit-code <code>", "Exit code that should be retried", collectInteger, [])
     .action(async (options: RunnerCliOptions) => {
       const store = storeFrom(program);
       const runnerConfig = await store.readRunnerConfig();
@@ -257,6 +274,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--permission-mode <mode>", "Claude permission mode", parsePermissionMode)
     .option("--tool <tool>", "Allowed tool for model runners", collect, [])
     .option("--timeout-ms <ms>", "Runner process timeout in milliseconds", parseInteger)
+    .option("--retry-attempts <count>", "Runner attempts", parseInteger)
+    .option("--retry-delay-ms <ms>", "Delay between retry attempts", parseNonNegativeInteger)
+    .option("--retry-exit-code <code>", "Exit code that should be retried", collectInteger, [])
     .action(
       async (
         missionId: string,
@@ -868,6 +888,11 @@ function collect(value: string, previous: string[]): string[] {
   return previous;
 }
 
+function collectInteger(value: string, previous: number[]): number[] {
+  previous.push(parseNonNegativeInteger(value));
+  return previous;
+}
+
 function storeFrom(program: Command): MissionStore {
   const options = program.opts<GlobalOptions>();
   return new MissionStore(options.repo);
@@ -944,6 +969,14 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+function parseNonNegativeInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`invalid non-negative integer: ${value}`);
+  }
+  return parsed;
+}
+
 function parseRunnerBackend(value: string): RunnerBackend {
   return RunnerBackendSchema.parse(value);
 }
@@ -978,13 +1011,18 @@ function parsePermissionMode(
 }
 
 function defaultRunnerConfig(defaultBackend: RunnerBackend): RunnerConfig {
+  const defaultBackendConfig = {
+    fallback_profiles: [],
+    tools: [],
+    retry: { attempts: 1, delay_ms: 0, exit_codes: [1, 124] },
+  };
   return {
     default_backend: defaultBackend,
     backends: {
-      record: { fallback_profiles: [], tools: [] },
-      shell: { fallback_profiles: [], tools: [] },
-      codex: { fallback_profiles: [], tools: [] },
-      claude: { fallback_profiles: [], tools: [] },
+      record: defaultBackendConfig,
+      shell: defaultBackendConfig,
+      codex: defaultBackendConfig,
+      claude: defaultBackendConfig,
     },
   };
 }
@@ -1003,6 +1041,9 @@ function mergeRunnerOptions(
     permissionMode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
     tool: string[];
     timeoutMs?: number;
+    retryAttempts?: number;
+    retryDelayMs?: number;
+    retryExitCode: number[];
   },
 ): RunnerOptions {
   const backendConfig = config.backends[backend];
@@ -1019,6 +1060,12 @@ function mergeRunnerOptions(
     permissionMode: options.permissionMode ?? backendConfig.permission_mode ?? "bypassPermissions",
     tools: options.tool.length > 0 ? options.tool : backendConfig.tools,
     timeoutMs: options.timeoutMs ?? backendConfig.timeout_ms,
+    retry: {
+      attempts: options.retryAttempts ?? backendConfig.retry.attempts,
+      delayMs: options.retryDelayMs ?? backendConfig.retry.delay_ms,
+      exitCodes:
+        options.retryExitCode.length > 0 ? options.retryExitCode : backendConfig.retry.exit_codes,
+    },
   };
 }
 

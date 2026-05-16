@@ -11,6 +11,10 @@ import { MissionSpecSchema } from "../src/types.js";
 import { utcNow } from "../src/time.js";
 import { bunBin, runProcess, withTempRepo } from "./helpers.js";
 
+function defaultRetry() {
+  return { attempts: 1, delay_ms: 0, exit_codes: [1, 124] };
+}
+
 describe("slugify", () => {
   it("generates a non-empty safe slug for arbitrary input", () => {
     fc.assert(
@@ -258,24 +262,31 @@ describe("MissionStore", () => {
       await expect(store.readRunnerConfig()).resolves.toEqual({
         default_backend: "record",
         backends: {
-          record: { fallback_profiles: [], tools: [] },
-          shell: { fallback_profiles: [], tools: [] },
-          codex: { fallback_profiles: [], tools: [] },
-          claude: { fallback_profiles: [], tools: [] },
+          record: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          shell: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          codex: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          claude: { fallback_profiles: [], tools: [], retry: defaultRetry() },
         },
       });
 
       await store.writeRunnerConfig({
         default_backend: "shell",
         backends: {
-          record: { fallback_profiles: [], tools: [] },
+          record: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           shell: {
             command: "printf configured > runner-output.txt",
             fallback_profiles: [],
             tools: [],
+            retry: defaultRetry(),
           },
-          codex: { fallback_profiles: ["nf"], profile: "kktest", tools: [], timeout_ms: 60000 },
-          claude: { fallback_profiles: [], tools: [] },
+          codex: {
+            fallback_profiles: ["nf"],
+            profile: "kktest",
+            tools: [],
+            timeout_ms: 60000,
+            retry: { attempts: 2, delay_ms: 0, exit_codes: [1, 124] },
+          },
+          claude: { fallback_profiles: [], tools: [], retry: defaultRetry() },
         },
       });
 
@@ -283,8 +294,18 @@ describe("MissionStore", () => {
         default_backend: "shell",
         backends: {
           shell: { command: "printf configured > runner-output.txt" },
-          codex: { profile: "kktest", fallback_profiles: ["nf"], timeout_ms: 60000 },
+          codex: {
+            profile: "kktest",
+            fallback_profiles: ["nf"],
+            timeout_ms: 60000,
+            retry: { attempts: 2 },
+          },
         },
+      });
+      expect((await store.readRunnerConfig()).backends.codex.retry).toEqual({
+        attempts: 2,
+        delay_ms: 0,
+        exit_codes: [1, 124],
       });
       expect(await readFile(join(repo, ".missions", "runners.yaml"), "utf8")).toContain(
         "default_backend: shell",

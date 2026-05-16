@@ -58,9 +58,21 @@ export type RunnerOptions = {
   permissionMode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
   tools?: string[];
   timeoutMs?: number;
+  retry?: RunnerRetryOptions;
 };
 
-const DEFAULT_BACKEND_CONFIG = { fallback_profiles: [], tools: [] };
+export type RunnerRetryOptions = {
+  attempts: number;
+  delayMs: number;
+  exitCodes: number[];
+};
+
+const DEFAULT_RETRY_CONFIG = { attempts: 1, delay_ms: 0, exit_codes: [1, 124] };
+const DEFAULT_BACKEND_CONFIG = {
+  fallback_profiles: [],
+  tools: [],
+  retry: DEFAULT_RETRY_CONFIG,
+};
 
 const RunnerBackendConfigSchema = z.object({
   command: z.string().min(1).optional(),
@@ -74,6 +86,13 @@ const RunnerBackendConfigSchema = z.object({
     .optional(),
   tools: z.array(z.string().min(1)).default([]),
   timeout_ms: z.number().int().positive().optional(),
+  retry: z
+    .object({
+      attempts: z.number().int().positive().default(1),
+      delay_ms: z.number().int().nonnegative().default(0),
+      exit_codes: z.array(z.number().int()).default([1, 124]),
+    })
+    .default({ attempts: 1, delay_ms: 0, exit_codes: [1, 124] }),
 });
 
 export const RunnerConfigSchema = z.object({
@@ -107,6 +126,7 @@ export type RunnerExecution = {
   durationMs: number;
   stdout: string;
   stderr: string;
+  tokensUsed?: number;
 };
 
 export function buildMissionPrompt(context: RunnerContext): string {
@@ -187,6 +207,30 @@ export async function executeRunner(
   context: RunnerContext,
   options: RunnerOptions = {},
 ): Promise<RunnerExecution> {
+  const retry = options.retry ?? { attempts: 1, delayMs: 0, exitCodes: [1, 124] };
+  const attempts = Math.max(1, retry.attempts);
+  const failedAttempts: RunnerExecution[] = [];
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const execution = await executeRunnerOnce(backend, context, options);
+    if (execution.exitCode === 0) {
+      return withRetryAttemptStderr(execution, failedAttempts);
+    }
+    if (attempt >= attempts || !retry.exitCodes.includes(execution.exitCode)) {
+      return withRetryAttemptStderr(execution, failedAttempts);
+    }
+    failedAttempts.push(execution);
+    if (retry.delayMs > 0) {
+      await sleep(retry.delayMs);
+    }
+  }
+  return executeRunnerOnce(backend, context, options);
+}
+
+async function executeRunnerOnce(
+  backend: RunnerBackend,
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
   switch (backend) {
     case "record":
       return executeRecordRunner(context);
@@ -197,6 +241,25 @@ export async function executeRunner(
     case "claude":
       return executeClaudeRunner(context, options);
   }
+}
+
+function withRetryAttemptStderr(
+  execution: RunnerExecution,
+  failedAttempts: RunnerExecution[],
+): RunnerExecution {
+  if (failedAttempts.length === 0) return execution;
+  const summaries = failedAttempts
+    .map(
+      (attempt, index) =>
+        `retry attempt ${index + 1} failed: exit ${attempt.exitCode}, command: ${
+          attempt.command ?? "unknown"
+        }`,
+    )
+    .join("\n");
+  return {
+    ...execution,
+    stderr: `${summaries}\n${execution.stderr}`,
+  };
 }
 
 export async function listCcSwitchRunnerProfiles(
@@ -276,6 +339,7 @@ async function executeShellRunner(
     durationMs: Math.round(performance.now() - started),
     stdout: result.stdout,
     stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
   };
 }
 
@@ -357,6 +421,7 @@ async function executeCodexRunnerAttempt(
     durationMs: Math.round(performance.now() - started),
     stdout: result.stdout,
     stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
   };
 }
 
@@ -415,6 +480,7 @@ async function executeClaudeRunner(
     durationMs: Math.round(performance.now() - started),
     stdout: result.stdout,
     stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
   };
 }
 
@@ -578,4 +644,16 @@ function quoteArg(value: string): string {
 
 function isoNow(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractTokensUsed(stdout: string, stderr: string): number | undefined {
+  const text = `${stdout}\n${stderr}`;
+  const match = /tokens used\s*\n\s*([0-9][0-9,]*)/i.exec(text);
+  if (!match) return undefined;
+  const parsed = Number.parseInt(match[1].replace(/,/g, ""), 10);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
