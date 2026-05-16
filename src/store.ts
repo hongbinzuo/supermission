@@ -32,6 +32,8 @@ import {
   type MissionStatus,
   type MissionTask,
   MissionTaskSchema,
+  type RequirementFinding,
+  RequirementFindingSchema,
   type SupervisorSignal,
   type TelemetryRecord,
   type ToolCallRecord,
@@ -160,6 +162,12 @@ export type RollbackCheckResult = {
   message: string;
 };
 
+export type RequirementAnalysisResult = {
+  mission_id: string;
+  findings: RequirementFinding[];
+  artifact: string;
+};
+
 const DEFAULT_ACTORS = [
   "planner-agent",
   "worker-agent",
@@ -235,6 +243,11 @@ export class MissionStore {
 
     await this.writeMission(spec);
     await writeFile(paths.plan, "# Plan\n\nTBD: Run `mission plan`.\n", "utf8");
+    await writeFile(
+      paths.requirementsAnalysis,
+      "# Requirements Analysis\n\nTBD: Run `mission requirements check`.\n",
+      "utf8",
+    );
     await writeFile(paths.decisions, "# Decisions\n\nTBD: Record decisions here.\n", "utf8");
     await writeFile(paths.validationLog, "", "utf8");
     await writeFile(paths.runLog, "# Run\n\nTBD: Run the mission with a runner.\n", "utf8");
@@ -398,6 +411,37 @@ export class MissionStore {
       await readJsonl<TelemetryRecord>(this.paths(missionId).telemetry),
       "telemetry",
     );
+  }
+
+  async analyzeRequirements(missionId: string, actor: string): Promise<RequirementAnalysisResult> {
+    const mission = await this.readMission(missionId);
+    const findings = RequirementFindingSchema.array().parse(
+      findRequirementIssues(mission.acceptance, mission.validation_commands),
+    );
+    const text = formatRequirementsAnalysis(mission, actor, findings);
+    await writeFile(this.paths(missionId).requirementsAnalysis, text, "utf8");
+    await this.appendEvent(missionId, "requirements.analysis.created", actor, {
+      artifact: "requirements-analysis.md",
+      findings: findings.length,
+      blocking: findings.filter((finding) => finding.severity === "blocking").length,
+      warning: findings.filter((finding) => finding.severity === "warning").length,
+    });
+    await this.appendTelemetry(missionId, {
+      metric: "requirements.analysis",
+      findings: findings.length,
+      blocking: findings.filter((finding) => finding.severity === "blocking").length,
+      warning: findings.filter((finding) => finding.severity === "warning").length,
+    });
+    if (findings.length > 0) {
+      await this.appendSupervisorSignal(missionId, {
+        type: "requirements_quality",
+        severity: findings.some((finding) => finding.severity === "blocking")
+          ? "blocking"
+          : "warning",
+        message: `${findings.length} requirement quality finding(s) need clarification before implementation.`,
+      });
+    }
+    return { mission_id: missionId, findings, artifact: "requirements-analysis.md" };
   }
 
   async readToolCalls(missionId: string): Promise<ToolCallRecord[]> {
@@ -2096,6 +2140,206 @@ function formatAddedList(label: string, values: string[]): string[] {
     ...(values.length > 0 ? values.map((value) => `- ${value}`) : ["- None"]),
     "",
   ];
+}
+
+function findRequirementIssues(
+  acceptance: string[],
+  validationCommands: string[],
+): RequirementFinding[] {
+  const findings: RequirementFinding[] = [];
+  const normalized = acceptance.map((item) => item.trim()).filter(Boolean);
+  if (normalized.length === 0) {
+    findings.push({
+      id: nextRequirementFindingId(findings),
+      type: "incompleteness",
+      severity: "blocking",
+      message: "No acceptance criteria are defined.",
+      question: "Should the mission be blocked until testable acceptance criteria are added?",
+      options: ["Add acceptance criteria before planning", "Proceed with explicit human approval"],
+    });
+  }
+
+  for (const requirement of normalized) {
+    const lower = requirement.toLowerCase();
+    if (/\b(fast|quick|easy|nice|simple|robust|secure|intuitive|good|better)\b/i.test(lower)) {
+      findings.push({
+        id: nextRequirementFindingId(findings),
+        type: "ambiguity",
+        severity: "warning",
+        requirement,
+        message: "The requirement uses qualitative language without a measurable threshold.",
+        question: "Which clarification should be made before implementation?",
+        options: ["Add a measurable threshold", "Keep as product guidance only"],
+      });
+    }
+    if (
+      /\b(use|implement with|built with|using)\s+(react|sqlite|postgres|redis|zod|yaml|json|langgraph|playwright|bun|node)\b/i.test(
+        lower,
+      )
+    ) {
+      findings.push({
+        id: nextRequirementFindingId(findings),
+        type: "implementation_leak",
+        severity: "info",
+        requirement,
+        message: "The requirement includes implementation detail that may belong in design.",
+        question: "Should this be treated as a hard constraint?",
+        options: ["Move it to design constraints", "Keep it as acceptance criteria"],
+      });
+    }
+    if (!hasObservableOutcome(requirement)) {
+      findings.push({
+        id: nextRequirementFindingId(findings),
+        type: "wrong_level_of_detail",
+        severity: "warning",
+        requirement,
+        message: "The requirement does not clearly name an observable outcome.",
+        question: "How should this be made testable?",
+        options: ["Rewrite as observable user/system behavior", "Attach a manual review rubric"],
+      });
+    }
+  }
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    for (let other = index + 1; other < normalized.length; other += 1) {
+      const first = normalized[index] ?? "";
+      const second = normalized[other] ?? "";
+      if (requirementsConflict(first, second)) {
+        findings.push({
+          id: nextRequirementFindingId(findings),
+          type: "inconsistency",
+          severity: "blocking",
+          requirement: `${first} / ${second}`,
+          message: "Two acceptance criteria appear to conflict.",
+          question: "Which behavior should be authoritative?",
+          options: ["Keep the first behavior", "Keep the second behavior"],
+        });
+      }
+    }
+  }
+
+  if (validationCommands.length === 0) {
+    findings.push({
+      id: nextRequirementFindingId(findings),
+      type: "incompleteness",
+      severity: "warning",
+      message: "No validation command is configured for this mission.",
+      question: "How should completion be verified?",
+      options: ["Add an automated validation command", "Require manual review evidence"],
+    });
+  }
+
+  return findings;
+}
+
+function hasObservableOutcome(requirement: string): boolean {
+  return /\b(show|display|return|write|record|create|update|delete|reject|allow|block|fail|pass|validate|emit|log|open|close|complete|finish|生成|显示|记录|创建|更新|删除|拒绝|允许|阻断|验证|通过|失败)\b/i.test(
+    requirement,
+  );
+}
+
+function requirementsConflict(first: string, second: string): boolean {
+  const firstLower = first.toLowerCase();
+  const secondLower = second.toLowerCase();
+  return (
+    (/\bmust\b|\brequire|required|always/.test(firstLower) &&
+      /\bmust not\b|\bnever\b|\bforbid|禁止|不能|不允许/.test(secondLower) &&
+      shareSignificantTerm(firstLower, secondLower)) ||
+    (/\bmust\b|\brequire|required|always/.test(secondLower) &&
+      /\bmust not\b|\bnever\b|\bforbid|禁止|不能|不允许/.test(firstLower) &&
+      shareSignificantTerm(firstLower, secondLower))
+  );
+}
+
+function shareSignificantTerm(first: string, second: string): boolean {
+  const stop = new Set([
+    "the",
+    "and",
+    "or",
+    "a",
+    "an",
+    "to",
+    "of",
+    "in",
+    "for",
+    "with",
+    "must",
+    "not",
+    "never",
+    "always",
+    "should",
+    "shall",
+    "user",
+    "system",
+  ]);
+  const firstTerms = new Set(
+    first.split(/[^a-z0-9_-]+/).filter((term) => term.length >= 4 && !stop.has(term)),
+  );
+  return second
+    .split(/[^a-z0-9_-]+/)
+    .some((term) => term.length >= 4 && !stop.has(term) && firstTerms.has(term));
+}
+
+function nextRequirementFindingId(findings: RequirementFinding[]): string {
+  return `req-${String(findings.length + 1).padStart(3, "0")}`;
+}
+
+function formatRequirementsAnalysis(
+  mission: MissionSpec,
+  actor: string,
+  findings: RequirementFinding[],
+): string {
+  const lines = [
+    "# Requirements Analysis",
+    "",
+    `Mission: ${mission.id}`,
+    `Goal: ${mission.goal}`,
+    `Analyst: ${actor}`,
+    `Created at: ${utcNow()}`,
+    "",
+    "## Summary",
+    "",
+    `- Acceptance criteria: ${mission.acceptance.length}`,
+    `- Validation commands: ${mission.validation_commands.length}`,
+    `- Findings: ${findings.length}`,
+    `- Blocking: ${findings.filter((finding) => finding.severity === "blocking").length}`,
+    `- Warning: ${findings.filter((finding) => finding.severity === "warning").length}`,
+    "",
+    "## Findings",
+    "",
+  ];
+
+  if (findings.length === 0) {
+    lines.push("- None");
+  } else {
+    for (const finding of findings) {
+      lines.push(
+        `### ${finding.id} ${finding.severity.toUpperCase()} ${finding.type}`,
+        "",
+        finding.requirement ? `Requirement: ${finding.requirement}` : "Requirement: mission-level",
+        "",
+        finding.message,
+        "",
+        `Question: ${finding.question}`,
+        "",
+        `- Option A: ${finding.options[0]}`,
+        `- Option B: ${finding.options[1]}`,
+        "",
+      );
+    }
+  }
+
+  lines.push(
+    "",
+    "## Method",
+    "",
+    "This first pass is deterministic. It checks for missing acceptance criteria,",
+    "missing validation commands, qualitative wording, implementation-detail leakage,",
+    "non-observable outcomes, and simple explicit conflicts. Future versions may add",
+    "LLM rewriting plus SMT/formal checks for stronger requirement proofs.",
+  );
+
+  return `${lines.join("\n")}\n`;
 }
 
 async function changedGitFiles(repo: string): Promise<string[]> {

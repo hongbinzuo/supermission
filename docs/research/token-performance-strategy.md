@@ -11,6 +11,8 @@ runtime latency. It complements the agent footprint and evaluation-set work.
 - Detect expensive or slow agent behavior early.
 - Build eval sets that include quality, token cost, latency, retries, and
   validation success.
+- Include requirements-analysis quality because unclear requirements waste
+  runner tokens and create expensive rework.
 - Keep optimization evidence in `.missions/` instead of relying on chat history.
 
 ## Initial Implementation

@@ -22,6 +22,7 @@ export function missionPaths(repo: string, missionId: string) {
     rollbackPlan: join(root, "rollback-plan.md"),
     scopeAudit: join(root, "scope-audit.md"),
     plan: join(root, "plan.md"),
+    requirementsAnalysis: join(root, "requirements-analysis.md"),
     decisions: join(root, "decisions.md"),
     validationLog: join(root, "validation.log"),
     runLog: join(root, "run.log"),

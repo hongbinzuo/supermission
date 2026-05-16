@@ -15,6 +15,7 @@
     "format:check": "prettier --check .",
     "mission": "bun src/cli.ts",
     "test": "vitest run",
+    "test:capability": "vitest run tests/capability.test.ts",
     "test:watch": "vitest",
     "test:mutation": "stryker run",
     "test:e2e": "playwright test"

@@ -21,6 +21,12 @@ reference material for abstractions and tradeoffs only.
   override project config.
 - Prefer plugin/component boundaries for runners, validators, artifact writers,
   policies, workflow templates, and future UI adapters.
+- Requirements analysis is a mainline product capability. Start with
+  deterministic requirement checks; use LLM rewriting and SMT/logic solvers only
+  where evaluation proves the representation is sound enough.
+- Web project validation should default to Playwright and deterministic
+  assertions. Browser/computer-use agents are optional exploratory validators,
+  not the first blocking gate.
 - `.missions/` remains the source of truth. A database may be added later as an
   index/cache, not as the primary mission record.
 - Every agent-facing feature should preserve enough structured evidence to build
@@ -67,12 +73,20 @@ READMEs.
 
 ## Quality Rules
 
+Supermission capability work should be evaluated while it is being built, not
+only after a large feature is finished. Use
+`docs/evaluations/supermission-capability-evaluation.md` and `evals/` fixtures as
+the product's own regression baseline. Public references from GitHub, papers,
+product docs, and benchmarks should become capability hypotheses with local
+evals or opt-in real runner smoke evidence before they become roadmap items.
+
 Before a stable slice is committed, run the relevant gates:
 
 ```bash
 bun run check
 bun run lint
 bun run format:check
+bun run test:capability
 bun run test
 bun run build
 ```

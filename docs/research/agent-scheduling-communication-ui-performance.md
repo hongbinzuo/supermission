@@ -120,6 +120,21 @@ Initial UI budgets to validate:
 - Log viewer remains responsive with 10k JSONL records through virtualization or
   pagination.
 
+## Web Validation Direction
+
+For web projects, deterministic browser validation should start with Playwright:
+
+- repeatable tests and assertions
+- screenshots, traces, and videos as evidence
+- stable CI behavior
+- direct Chrome support
+- clear failure output for `validation.log`
+
+Codex computer use, browser-use agents, and similar exploratory browser drivers
+are useful later as optional validators for UX exploration and human-like smoke
+flows. They should be plugins or runner adapters, not the primary verification
+path, until eval data shows they are stable enough to block a mission.
+
 ## Product Decision For Now
 
 Supermission should prioritize code scheduling over agent-to-agent chat.

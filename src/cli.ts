@@ -75,6 +75,41 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       console.log(`planned ${missionId}`);
     });
 
+  const requirements = program
+    .command("requirements")
+    .description("Analyze mission requirements before implementation");
+
+  requirements
+    .command("check")
+    .description("Create requirements-analysis.md and report requirement quality findings")
+    .argument("<mission-id>")
+    .option("--actor <actor>", "Actor id", "requirements-analyst")
+    .option("--json", "Print JSON")
+    .option("--block-on-findings", "Exit non-zero when blocking findings are present")
+    .action(
+      async (
+        missionId: string,
+        options: { actor: string; json?: boolean; blockOnFindings?: boolean },
+      ) => {
+        const result = await storeFrom(program).analyzeRequirements(missionId, options.actor);
+        const blocking = result.findings.filter((finding) => finding.severity === "blocking");
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(
+            `requirements ${missionId}: ${result.findings.length} finding(s), ${blocking.length} blocking`,
+          );
+          for (const finding of result.findings) {
+            console.log(`${finding.id} ${finding.severity} ${finding.type}: ${finding.message}`);
+          }
+          console.log(result.artifact);
+        }
+        if (options.blockOnFindings && blocking.length > 0) {
+          process.exitCode = 1;
+        }
+      },
+    );
+
   program
     .command("approve")
     .description("Approve a gate")

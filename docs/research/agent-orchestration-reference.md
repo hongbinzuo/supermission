@@ -237,6 +237,11 @@ Supermission mapping:
 - Build TUI/control surfaces over existing records instead of inventing a second
   state store.
 - Keep roadmap changes tied to concrete milestones.
+- Add requirements analysis before implementation. Kiro's deep-spec direction is
+  a mainline product reference: use LLMs for rewriting vague natural language
+  into testable criteria, then use deterministic/logic-based checks where
+  possible. Start with deterministic local checks and only add solver-backed
+  proof for requirement families that can be represented soundly.
 
 Scheduling and communication tradeoffs are tracked in
 [`agent-scheduling-communication-ui-performance.md`](./agent-scheduling-communication-ui-performance.md).

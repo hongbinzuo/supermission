@@ -112,6 +112,7 @@ export type SupervisorSignal = {
     | "handoff_stale"
     | "risky_command_blocked"
     | "command_policy_blocked"
+    | "requirements_quality"
     | "linear_mutation_conflict";
   severity: "info" | "warning" | "blocking";
   message: string;
@@ -209,3 +210,21 @@ export type DoctorFinding = {
   message: string;
   next: string;
 };
+
+export const RequirementFindingSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum([
+    "wrong_level_of_detail",
+    "ambiguity",
+    "implementation_leak",
+    "inconsistency",
+    "incompleteness",
+  ]),
+  severity: z.enum(["info", "warning", "blocking"]),
+  requirement: z.string().optional(),
+  message: z.string().min(1),
+  question: z.string().min(1),
+  options: z.array(z.string().min(1)).length(2),
+});
+
+export type RequirementFinding = z.infer<typeof RequirementFindingSchema>;

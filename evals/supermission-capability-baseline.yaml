@@ -1,0 +1,34 @@
+id: supermission-capability-baseline
+name: Local mission workflow capability baseline
+type: local_deterministic
+goal: Verify Supermission can manage a small coding mission with evidence.
+acceptance:
+  - Mission reaches completed status after plan, approval, run, validation, review, and handoff.
+  - Runner execution records backend, runtime, token usage, artifact link, and evaluation subject.
+  - Summary, trace, run log, validation log, review, and handoff artifacts are inspectable.
+validation_commands:
+  - bun --version
+runner:
+  backend: shell
+  command: "printf 'capability-ok\\ntokens used\\n321\\n' > capability-output.txt && printf 'capability-ok\\ntokens used\\n321\\n'"
+budgets:
+  max_duration_ms: 5000
+  max_tokens_used: 1000
+required_artifacts:
+  - mission.yaml
+  - plan.md
+  - requirements-analysis.md
+  - run.log
+  - validation.log
+  - review.md
+  - handoff.md
+  - events.jsonl
+  - telemetry.jsonl
+  - tool-calls.jsonl
+score_dimensions:
+  - workflow_completion
+  - evidence_completeness
+  - validation_strength
+  - review_readiness
+  - footprint_quality
+  - cost_performance

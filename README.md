@@ -36,6 +36,7 @@ repo-native records, linear code mutations, and strong tests.
 
 - Git-backed `.missions/<mission-id>/` records.
 - `mission.yaml` as the mission spec and status file.
+- `requirements-analysis.md` for pre-implementation requirement quality checks.
 - Append-only `events.jsonl`, `telemetry.jsonl`, `tool-calls.jsonl`, and
   `supervisor-signals.jsonl`.
 - `tasks/` task ledger with orchestration-ready roles and mutation modes.
@@ -116,6 +117,7 @@ bin/mission new "Add login validation" \
   --validation "bun run test"
 
 bin/mission plan <mission-id>
+bin/mission requirements check <mission-id>
 bin/mission approve <mission-id>
 bin/mission run <mission-id> \
   --backend shell \
@@ -238,6 +240,7 @@ Core flow:
 
 - `mission new`
 - `mission plan`
+- `mission requirements check`
 - `mission approve`
 - `mission run`
 - `mission validate`
@@ -305,15 +308,15 @@ The roadmap is milestone-based and should change with the implementation. See
 [`AGENTS.md`](./AGENTS.md) for the rule that future agents must keep this section
 and release docs current.
 
-| Milestone | Focus                                                                                                                                   | Current status |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| V0        | Local-first mission records, CLI state machine, artifacts, validation, review, handoff, rollback planning                               | In progress    |
-| V0.5      | Unified runner layer across record, shell, Codex, and Claude Code; real integration smoke tests with explicit credentials/profile setup | In progress    |
-| V0.6      | Plugin/component boundaries for runners, validators, artifact writers, policies, and workflow templates                                 | Planned        |
-| V0.7      | Agent footprint maps, result evaluation records, reusable eval sets, stronger Git/worktree isolation, task queues, merge checkpoints    | Planned        |
-| V1        | Terminal TUI over the same engine, no duplicated mission logic                                                                          | Planned        |
-| V1.5      | Editor adapters after CLI/TUI contracts stabilize                                                                                       | Planned        |
-| V2        | Open-source extension points, package/release pipeline, and documented compatibility targets                                            | Planned        |
+| Milestone | Focus                                                                                                                                                  | Current status |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| V0        | Local-first mission records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                              | In progress    |
+| V0.5      | Unified runner layer across record, shell, Codex, and Claude Code; real integration smoke tests with explicit credentials/profile setup                | In progress    |
+| V0.6      | Requirements analysis, local capability evals, plugin/component boundaries for runners, validators, artifact writers, policies, and workflow templates | In progress    |
+| V0.7      | Agent footprint maps, result evaluation records, reusable eval sets, stronger Git/worktree isolation, task queues, merge checkpoints                   | Planned        |
+| V1        | Terminal TUI over the same engine, no duplicated mission logic                                                                                         | Planned        |
+| V1.5      | Editor adapters after CLI/TUI contracts stabilize                                                                                                      | Planned        |
+| V2        | Open-source extension points, package/release pipeline, and documented compatibility targets                                                           | Planned        |
 
 Primary baseline: Factory Missions-style collaborative planning, milestone
 execution, and validation. Supermission is the open-source, local-first version
@@ -326,6 +329,13 @@ Token/runtime performance strategy is tracked in
 [`docs/research/token-performance-strategy.md`](./docs/research/token-performance-strategy.md).
 Agent scheduling, communication, and UI performance tradeoffs are tracked in
 [`docs/research/agent-scheduling-communication-ui-performance.md`](./docs/research/agent-scheduling-communication-ui-performance.md).
+Supermission's own product capability evaluation loop is tracked in
+[`docs/evaluations/supermission-capability-evaluation.md`](./docs/evaluations/supermission-capability-evaluation.md).
+The current local deterministic baseline fixture is
+[`evals/supermission-capability-baseline.yaml`](./evals/supermission-capability-baseline.yaml).
+For web-project validation, Playwright is the default deterministic path.
+Computer/browser-use agents are future optional exploratory validators, not a
+replacement for repeatable assertions and trace evidence.
 
 ## Verification
 
@@ -333,6 +343,7 @@ Agent scheduling, communication, and UI performance tradeoffs are tracked in
 bun run check
 bun run lint
 bun run format:check
+BUN_BIN="$HOME/.bun/bin/bun" bun run test:capability
 BUN_BIN="$HOME/.bun/bin/bun" bun run test
 bun run build
 ```
@@ -363,7 +374,9 @@ Project defaults live in `.missions/runners.yaml`. Use
 
 The current tests include black-box CLI integration, property-based tests,
 schema validation, failure branches, supervisor signals, and a basic trace
-performance budget. Run `bun run test` for the current count.
+performance budget. `bun run test:capability` runs the current Supermission
+product capability baseline without external model calls. Run `bun run test` for
+the current full count.
 
 ## TBD / Needs Review
 

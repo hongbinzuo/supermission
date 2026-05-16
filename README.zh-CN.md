@@ -20,6 +20,7 @@ Bun-first TypeScript、本地优先、Git-backed `.missions/` 记录、线性代
 
 - Git-backed `.missions/<mission-id>/` 任务记录。
 - `mission.yaml` 作为 mission 规格和状态文件。
+- `requirements-analysis.md` 用于实现前的需求质量检查。
 - Append-only `events.jsonl`、`telemetry.jsonl`、`tool-calls.jsonl`、
   `supervisor-signals.jsonl`。
 - `tasks/` 任务台账，保留 actor role、依赖和 mutation mode。
@@ -111,6 +112,7 @@ bin/mission new "Add login validation" \
   --validation "bun run test"
 
 bin/mission plan <mission-id>
+bin/mission requirements check <mission-id>
 bin/mission approve <mission-id>
 bin/mission run <mission-id> \
   --backend shell \
@@ -136,6 +138,7 @@ bin/mission handoff <mission-id>
 
 - `mission new`
 - `mission plan`
+- `mission requirements check`
 - `mission approve`
 - `mission run`
 - `mission validate`
@@ -196,15 +199,15 @@ Git 证据和隔离：
 路线图按 milestone 维护，必须随实现变化更新。未来 agent 的维护规则见
 [`AGENTS.md`](./AGENTS.md)。
 
-| 里程碑 | 重点                                                                           | 当前状态 |
-| ------ | ------------------------------------------------------------------------------ | -------- |
-| V0     | 本地 mission records、CLI 状态机、artifacts、验证、评审、交接、回退计划        | 进行中   |
-| V0.5   | 统一 runner 层，接入 record、shell、Codex、Claude Code；补真实集成 smoke tests | 进行中   |
-| V0.6   | runner、validator、artifact writer、policy、workflow template 的插件/组件边界  | 计划中   |
-| V0.7   | Agent 足迹图、结果测评记录、可复用 eval set、Git/worktree 隔离、任务队列       | 计划中   |
-| V1     | Terminal TUI 复用同一个 engine，不复制 mission logic                           | 计划中   |
-| V1.5   | CLI/TUI 合约稳定后做 editor adapters                                           | 计划中   |
-| V2     | 开源扩展点、安装发布流水线、兼容性目标文档                                     | 计划中   |
+| 里程碑 | 重点                                                                                                  | 当前状态 |
+| ------ | ----------------------------------------------------------------------------------------------------- | -------- |
+| V0     | 本地 mission records、CLI 状态机、artifacts、验证、评审、交接、回退计划                               | 进行中   |
+| V0.5   | 统一 runner 层，接入 record、shell、Codex、Claude Code；补真实集成 smoke tests                        | 进行中   |
+| V0.6   | 需求分析、本地能力测评、runner、validator、artifact writer、policy、workflow template 的插件/组件边界 | 进行中   |
+| V0.7   | Agent 足迹图、结果测评记录、可复用 eval set、Git/worktree 隔离、任务队列                              | 计划中   |
+| V1     | Terminal TUI 复用同一个 engine，不复制 mission logic                                                  | 计划中   |
+| V1.5   | CLI/TUI 合约稳定后做 editor adapters                                                                  | 计划中   |
+| V2     | 开源扩展点、安装发布流水线、兼容性目标文档                                                            | 计划中   |
 
 主要对标基线是 Factory Missions 的协作规划、按 milestone 执行和验证闭环。
 Supermission 的定位是这个方向的开源、本地优先版本，`.missions/` 是 source of truth。
@@ -216,6 +219,12 @@ Token 和运行性能策略见
 [`docs/research/token-performance-strategy.md`](./docs/research/token-performance-strategy.md)。
 Agent 调度、通信和前端性能取舍见
 [`docs/research/agent-scheduling-communication-ui-performance.md`](./docs/research/agent-scheduling-communication-ui-performance.md)。
+Supermission 自身产品能力测评循环见
+[`docs/evaluations/supermission-capability-evaluation.md`](./docs/evaluations/supermission-capability-evaluation.md)。
+当前本地确定性 baseline fixture 是
+[`evals/supermission-capability-baseline.yaml`](./evals/supermission-capability-baseline.yaml)。
+Web 项目验证默认走 Playwright 这种确定性路径；computer/browser-use agent 后续可以
+作为探索式 validator 插件，但不能替代可重复断言、截图和 trace 证据。
 
 ## 验证
 
@@ -223,6 +232,7 @@ Agent 调度、通信和前端性能取舍见
 bun run check
 bun run lint
 bun run format:check
+BUN_BIN="$HOME/.bun/bin/bun" bun run test:capability
 BUN_BIN="$HOME/.bun/bin/bun" bun run test
 bun run build
 ```
@@ -251,7 +261,9 @@ runner 会继续尝试后面的 profile，全部失败才让 mission run 失败�
 优先级高于项目配置。
 
 测试覆盖黑盒 CLI 集成、property-based tests、schema validation、失败分支、
-supervisor signals 和基础 trace 性能预算。当前测试数量以 `bun run test` 输出为准。
+supervisor signals 和基础 trace 性能预算。`bun run test:capability` 会运行当前
+Supermission 产品能力 baseline，不调用外部模型服务。当前完整测试数量以
+`bun run test` 输出为准。
 
 ## 待确认
 
