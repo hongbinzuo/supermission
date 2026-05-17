@@ -6,8 +6,8 @@ import fc from "fast-check";
 import YAML from "yaml";
 import { readJsonl } from "../src/jsonl.js";
 import { slugify } from "../src/slug.js";
-import { MissionStore } from "../src/store.js";
-import { MissionSpecSchema } from "../src/types.js";
+import { WorkStore } from "../src/store.js";
+import { WorkSpecSchema } from "../src/types.js";
 import { utcNow } from "../src/time.js";
 import { bunBin, runProcess, withTempRepo } from "./helpers.js";
 
@@ -32,7 +32,7 @@ describe("slugify", () => {
     expect(slugify("  auth  ")).toBe("auth");
     expect(slugify("auth---")).toBe("auth");
     expect(slugify("---auth")).toBe("auth");
-    expect(slugify("----")).toBe("mission");
+    expect(slugify("----")).toBe("work");
     expect(slugify("a".repeat(80))).toBe("a".repeat(48));
   });
 });
@@ -61,20 +61,20 @@ describe("record helpers", () => {
   });
 });
 
-describe("MissionStore", () => {
-  it("creates orchestration-ready mission artifacts", async () => {
+describe("WorkStore", () => {
+  it("creates orchestration-ready work artifacts", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      const missionId = await store.createMission({
-        id: "mission-test",
+      const store = new WorkStore(repo);
+      const workId = await store.createWork({
+        id: "work-test",
         goal: "Add login validation",
         actor: "local-user",
         acceptance: ["Invalid logins show an error"],
         validationCommands: [`${bunBin} --version`],
       });
 
-      expect(missionId).toBe("mission-test");
-      const spec = await store.readMission(missionId);
+      expect(workId).toBe("work-test");
+      const spec = await store.readWork(workId);
       expect(spec.status).toBe("draft");
       expect(spec.actors).toEqual([
         "planner-agent",
@@ -93,94 +93,92 @@ describe("MissionStore", () => {
         "handoff",
       ]);
 
-      const tasks = await store.listTasks(missionId);
+      const tasks = await store.listTasks(workId);
       expect(tasks).toHaveLength(1);
       expect(tasks[0]?.status).toBe("ready");
       expect(tasks[0]?.actor_role).toBe("worker-agent");
       expect(tasks[0]?.depends_on).toEqual([]);
       expect(tasks[0]?.scope).toEqual({ allow: [], deny: [] });
 
-      const events = await store.readEvents(missionId);
+      const events = await store.readEvents(workId);
       expect(events).toContainEqual(
         expect.objectContaining({
-          type: "mission.created",
+          type: "work.created",
           actor: "local-user",
           goal: "Add login validation",
         }),
       );
       expect(events[0]).toMatchObject({ record_id: "event-000001" });
       expect(
-        await readFile(join(repo, ".missions", "mission-test", "events.jsonl"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-test", "events.jsonl"), "utf8"),
       ).toContain('"record_id":"event-000001"');
-      expect(await store.readTelemetry(missionId)).toContainEqual(
-        expect.objectContaining({ metric: "mission.created", status: "draft" }),
+      expect(await store.readTelemetry(workId)).toContainEqual(
+        expect.objectContaining({ metric: "work.created", status: "draft" }),
       );
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "plan.md"), "utf8"),
-      ).resolves.toContain("Run `mission plan`");
+        readFile(join(repo, ".supermission", "work-test", "plan.md"), "utf8"),
+      ).resolves.toContain("Run `supermission plan`");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "decisions.md"), "utf8"),
+        readFile(join(repo, ".supermission", "work-test", "decisions.md"), "utf8"),
       ).resolves.toContain("Record decisions");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "scope-audit.md"), "utf8"),
-      ).resolves.toContain("mission task audit-scope");
+        readFile(join(repo, ".supermission", "work-test", "scope-audit.md"), "utf8"),
+      ).resolves.toContain("supermission task audit-scope");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "review.md"), "utf8"),
+        readFile(join(repo, ".supermission", "work-test", "review.md"), "utf8"),
       ).resolves.toContain("Record review findings");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "monitor.md"), "utf8"),
-      ).resolves.toContain("Run `mission monitor`");
+        readFile(join(repo, ".supermission", "work-test", "monitor.md"), "utf8"),
+      ).resolves.toContain("Run `supermission monitor`");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "debug.md"), "utf8"),
+        readFile(join(repo, ".supermission", "work-test", "debug.md"), "utf8"),
       ).resolves.toContain("No debug notes yet");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "handoff.md"), "utf8"),
-      ).resolves.toContain("Run `mission handoff`");
+        readFile(join(repo, ".supermission", "work-test", "handoff.md"), "utf8"),
+      ).resolves.toContain("Run `supermission handoff`");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "validation.log"), "utf8"),
+        readFile(join(repo, ".supermission", "work-test", "validation.log"), "utf8"),
       ).resolves.toBe("");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "run.log"), "utf8"),
-      ).resolves.toContain("TBD: Run the mission with a runner.");
+        readFile(join(repo, ".supermission", "work-test", "run.log"), "utf8"),
+      ).resolves.toContain("TBD: Run the work with a runner.");
       await expect(
-        readFile(join(repo, ".missions", "mission-test", "patch.diff"), "utf8"),
+        readFile(join(repo, ".supermission", "work-test", "patch.diff"), "utf8"),
       ).resolves.toBe("");
     });
   });
 
-  it("generates timestamped mission ids when no explicit id is provided", async () => {
+  it("generates timestamped work ids when no explicit id is provided", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      const missionId = await store.createMission({
+      const store = new WorkStore(repo);
+      const workId = await store.createWork({
         goal: "Ship Login Flow!",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
 
-      expect(missionId).toMatch(/^\d{14}-ship-login-flow$/);
-      await expect(store.readMission(missionId)).resolves.toMatchObject({
-        id: missionId,
+      expect(workId).toMatch(/^\d{14}-ship-login-flow$/);
+      await expect(store.readWork(workId)).resolves.toMatchObject({
+        id: workId,
         goal: "Ship Login Flow!",
       });
     });
   });
 
-  it("rejects unknown mission reads with a useful error", async () => {
+  it("rejects unknown work reads with a useful error", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
+      const store = new WorkStore(repo);
 
-      await expect(store.readMission("missing-mission")).rejects.toThrow(
-        "unknown mission: missing-mission",
-      );
+      await expect(store.readWork("missing-work")).rejects.toThrow("unknown work: missing-work");
     });
   });
 
-  it("rejects duplicate mission ids", async () => {
+  it("rejects duplicate work ids", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-duplicate",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-duplicate",
         goal: "Original",
         actor: "local-user",
         acceptance: [],
@@ -188,53 +186,53 @@ describe("MissionStore", () => {
       });
 
       await expect(
-        store.createMission({
-          id: "mission-duplicate",
+        store.createWork({
+          id: "work-duplicate",
           goal: "Duplicate",
           actor: "local-user",
           acceptance: [],
           validationCommands: [],
         }),
-      ).rejects.toThrow("mission already exists: mission-duplicate");
+      ).rejects.toThrow("work already exists: work-duplicate");
     });
   });
 
-  it("lists mission ids sorted and ignores incomplete mission directories", async () => {
+  it("lists work ids sorted and ignores incomplete work directories", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-b",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-b",
         goal: "B",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      await store.createMission({
-        id: "mission-a",
+      await store.createWork({
+        id: "work-a",
         goal: "A",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      await mkdir(join(repo, ".missions", "incomplete"), { recursive: true });
+      await mkdir(join(repo, ".supermission", "incomplete"), { recursive: true });
 
-      expect(await store.listMissionIds()).toEqual(["mission-a", "mission-b"]);
+      expect(await store.listWorkIds()).toEqual(["work-a", "work-b"]);
     });
   });
 
-  it("returns no missions when mission root is missing and rejects invalid roots", async () => {
+  it("returns no works when work root is missing and rejects invalid roots", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      expect(await store.listMissionIds()).toEqual([]);
+      const store = new WorkStore(repo);
+      expect(await store.listWorkIds()).toEqual([]);
 
-      await writeFile(join(repo, ".missions"), "not a directory\n", "utf8");
-      await expect(store.listMissionIds()).rejects.toThrow();
+      await writeFile(join(repo, ".supermission"), "not a directory\n", "utf8");
+      await expect(store.listWorkIds()).rejects.toThrow();
     });
   });
 
   it("writes and reads project validation policy", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
+      const store = new WorkStore(repo);
       await expect(store.readPolicy()).resolves.toEqual({
         validation_allowlist: [],
         redaction: { patterns: [] },
@@ -249,16 +247,18 @@ describe("MissionStore", () => {
         validation_allowlist: ["bun run test", `${bunBin} *`],
         redaction: { patterns: ["session-id=[A-Za-z0-9]+"] },
       });
-      expect(await readFile(join(repo, ".missions", "policy.yaml"), "utf8")).toContain(
+      expect(await readFile(join(repo, ".supermission", "policy.yaml"), "utf8")).toContain(
         "validation_allowlist",
       );
-      expect(await readFile(join(repo, ".missions", "policy.yaml"), "utf8")).toContain("redaction");
+      expect(await readFile(join(repo, ".supermission", "policy.yaml"), "utf8")).toContain(
+        "redaction",
+      );
     });
   });
 
   it("writes and reads project runner config", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
+      const store = new WorkStore(repo);
       await expect(store.readRunnerConfig()).resolves.toEqual({
         default_backend: "record",
         backends: {
@@ -307,7 +307,7 @@ describe("MissionStore", () => {
         delay_ms: 0,
         exit_codes: [1, 124],
       });
-      expect(await readFile(join(repo, ".missions", "runners.yaml"), "utf8")).toContain(
+      expect(await readFile(join(repo, ".supermission", "runners.yaml"), "utf8")).toContain(
         "default_backend: shell",
       );
     });
@@ -315,10 +315,10 @@ describe("MissionStore", () => {
 
   it("rejects invalid project policy files", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await mkdir(join(repo, ".missions"), { recursive: true });
+      const store = new WorkStore(repo);
+      await mkdir(join(repo, ".supermission"), { recursive: true });
       await writeFile(
-        join(repo, ".missions", "policy.yaml"),
+        join(repo, ".supermission", "policy.yaml"),
         YAML.stringify({ validation_allowlist: "bun run test" }),
         "utf8",
       );
@@ -329,9 +329,9 @@ describe("MissionStore", () => {
 
   it("redacts custom policy patterns during validation", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-custom-redaction",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-custom-redaction",
         goal: "Custom redaction",
         actor: "local-user",
         acceptance: [],
@@ -344,9 +344,9 @@ describe("MissionStore", () => {
         redaction: { patterns: ["session-id=[A-Za-z0-9]+"] },
       });
 
-      await store.validate("mission-custom-redaction", "validator-agent");
+      await store.validate("work-custom-redaction", "validator-agent");
       const validationLog = await readFile(
-        join(repo, ".missions", "mission-custom-redaction", "validation.log"),
+        join(repo, ".supermission", "work-custom-redaction", "validation.log"),
         "utf8",
       );
 
@@ -363,16 +363,16 @@ describe("MissionStore", () => {
           fc.array(fc.string({ minLength: 1, maxLength: 60 }), { maxLength: 8 }),
           fc.array(fc.string({ minLength: 1, maxLength: 60 }), { maxLength: 8 }),
           async (acceptance, validationCommands) => {
-            const store = new MissionStore(repo);
-            const missionId = `mission-${randomUUID()}`;
-            await store.createMission({
-              id: missionId,
-              goal: "Roundtrip mission",
+            const store = new WorkStore(repo);
+            const workId = `work-${randomUUID()}`;
+            await store.createWork({
+              id: workId,
+              goal: "Roundtrip work",
               actor: "local-user",
               acceptance,
               validationCommands,
             });
-            const spec = await store.readMission(missionId);
+            const spec = await store.readWork(workId);
             expect(spec.acceptance).toEqual(acceptance);
             expect(spec.validation_commands).toEqual(validationCommands);
           },
@@ -384,28 +384,28 @@ describe("MissionStore", () => {
 
   it("runs the happy path and writes validation evidence", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-flow",
-        goal: "Complete a mission",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-flow",
+        goal: "Complete a work",
         actor: "local-user",
         acceptance: ["Validation passes"],
         validationCommands: [`${bunBin} --version`],
       });
 
-      await store.writePlan("mission-flow", "planner-agent");
-      await store.approve("mission-flow", "local-user");
-      await store.recordRun("mission-flow", "worker-agent", "implemented externally");
-      const result = await store.validate("mission-flow", "validator-agent");
-      await store.writeHandoff("mission-flow", "handoff-agent");
+      await store.writePlan("work-flow", "planner-agent");
+      await store.approve("work-flow", "local-user");
+      await store.recordRun("work-flow", "worker-agent", "implemented externally");
+      const result = await store.validate("work-flow", "validator-agent");
+      await store.writeHandoff("work-flow", "handoff-agent");
 
       expect(result.exitCode).toBe(0);
-      expect((await store.readMission("mission-flow")).status).toBe("completed");
+      expect((await store.readWork("work-flow")).status).toBe("completed");
       expect(
-        await readFile(join(repo, ".missions", "mission-flow", "validation.log"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-flow", "validation.log"), "utf8"),
       ).toContain("Exit code: 0");
 
-      const eventTypes = (await store.readEvents("mission-flow")).map((event) => event.type);
+      const eventTypes = (await store.readEvents("work-flow")).map((event) => event.type);
       expect(eventTypes).toContain("plan.proposed");
       expect(eventTypes).toContain("validation.passed");
       expect(eventTypes).toContain("handoff.created");
@@ -414,34 +414,34 @@ describe("MissionStore", () => {
 
   it("rejects out-of-order workflow gates with supervisor evidence", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-state-gates",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-state-gates",
         goal: "Enforce workflow order",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} --version`],
       });
 
-      await expect(store.approve("mission-state-gates", "local-user")).rejects.toThrow(
-        "approve_plan requires mission status planned",
+      await expect(store.approve("work-state-gates", "local-user")).rejects.toThrow(
+        "approve_plan requires work status planned",
       );
-      await expect(store.recordRun("mission-state-gates", "worker-agent")).rejects.toThrow(
-        "run requires mission status approved or needs_review or failed or blocked",
+      await expect(store.recordRun("work-state-gates", "worker-agent")).rejects.toThrow(
+        "run requires work status approved or needs_review or failed or blocked",
       );
-      await expect(store.writeHandoff("mission-state-gates", "handoff-agent")).rejects.toThrow(
-        "handoff completion requires mission status validated",
+      await expect(store.writeHandoff("work-state-gates", "handoff-agent")).rejects.toThrow(
+        "handoff completion requires work status validated",
       );
 
-      const signals = await store.readSupervisorSignals("mission-state-gates");
+      const signals = await store.readSupervisorSignals("work-state-gates");
       expect(signals).toContainEqual(
         expect.objectContaining({
           type: "gate_waiting",
           severity: "blocking",
-          message: expect.stringContaining("approve_plan requires mission status planned"),
+          message: expect.stringContaining("approve_plan requires work status planned"),
         }),
       );
-      expect((await store.readEvents("mission-state-gates")).map((event) => event.type)).toContain(
+      expect((await store.readEvents("work-state-gates")).map((event) => event.type)).toContain(
         "workflow.blocked",
       );
     });
@@ -449,9 +449,9 @@ describe("MissionStore", () => {
 
   it("allows handoff drafts when completion is explicitly disabled", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-handoff-draft",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-handoff-draft",
         goal: "Draft handoff",
         actor: "local-user",
         acceptance: [],
@@ -459,37 +459,37 @@ describe("MissionStore", () => {
       });
 
       await expect(
-        store.writeHandoff("mission-handoff-draft", "handoff-agent", false),
+        store.writeHandoff("work-handoff-draft", "handoff-agent", false),
       ).resolves.toBeUndefined();
-      expect((await store.readMission("mission-handoff-draft")).status).toBe("draft");
+      expect((await store.readWork("work-handoff-draft")).status).toBe("draft");
     });
   });
 
   it("records failure, debug notes, and failed status", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-fail",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-fail",
         goal: "Fail validation",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} -e 'process.exit(7)'`],
       });
 
-      const result = await store.validate("mission-fail", "validator-agent");
-      const debug = await readFile(join(repo, ".missions", "mission-fail", "debug.md"), "utf8");
+      const result = await store.validate("work-fail", "validator-agent");
+      const debug = await readFile(join(repo, ".supermission", "work-fail", "debug.md"), "utf8");
 
       expect(result.exitCode).toBe(7);
-      expect((await store.readMission("mission-fail")).status).toBe("failed");
+      expect((await store.readWork("work-fail")).status).toBe("failed");
       expect(debug).toContain("Validation failed with exit code 7");
     });
   });
 
   it("redacts common secrets from validation logs and tool-call records", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-redaction",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-redaction",
         goal: "Redact validation output",
         actor: "local-user",
         acceptance: [],
@@ -498,13 +498,13 @@ describe("MissionStore", () => {
         ],
       });
 
-      await store.validate("mission-redaction", "validator-agent");
+      await store.validate("work-redaction", "validator-agent");
       const validationLog = await readFile(
-        join(repo, ".missions", "mission-redaction", "validation.log"),
+        join(repo, ".supermission", "work-redaction", "validation.log"),
         "utf8",
       );
       const toolCalls = await readFile(
-        join(repo, ".missions", "mission-redaction", "tool-calls.jsonl"),
+        join(repo, ".supermission", "work-redaction", "tool-calls.jsonl"),
         "utf8",
       );
 
@@ -520,9 +520,9 @@ describe("MissionStore", () => {
 
   it("redacts lowercase, header, JSON, and source-control token variants", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-redaction-variants",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-redaction-variants",
         goal: "Redact variant secret shapes",
         actor: "local-user",
         acceptance: [],
@@ -531,13 +531,13 @@ describe("MissionStore", () => {
         ],
       });
 
-      await store.validate("mission-redaction-variants", "validator-agent");
+      await store.validate("work-redaction-variants", "validator-agent");
       const validationLog = await readFile(
-        join(repo, ".missions", "mission-redaction-variants", "validation.log"),
+        join(repo, ".supermission", "work-redaction-variants", "validation.log"),
         "utf8",
       );
       const toolCalls = await readFile(
-        join(repo, ".missions", "mission-redaction-variants", "tool-calls.jsonl"),
+        join(repo, ".supermission", "work-redaction-variants", "tool-calls.jsonl"),
         "utf8",
       );
 
@@ -560,24 +560,24 @@ describe("MissionStore", () => {
 
   it("blocks risky validation commands unless explicitly allowed", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-risky",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-risky",
         goal: "Risky validation",
         actor: "local-user",
         acceptance: [],
         validationCommands: ["rm -rf ./definitely-risky"],
       });
 
-      const blocked = await store.validate("mission-risky", "validator-agent");
+      const blocked = await store.validate("work-risky", "validator-agent");
       expect(blocked.exitCode).toBe(3);
-      expect((await store.readMission("mission-risky")).status).toBe("blocked");
+      expect((await store.readWork("work-risky")).status).toBe("blocked");
       expect(
-        await readFile(join(repo, ".missions", "mission-risky", "validation.log"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-risky", "validation.log"), "utf8"),
       ).toContain("Blocked Risky Command");
 
       const signals = await readJsonl(
-        join(repo, ".missions", "mission-risky", "supervisor-signals.jsonl"),
+        join(repo, ".supermission", "work-risky", "supervisor-signals.jsonl"),
       );
       expect(signals).toContainEqual(
         expect.objectContaining({ type: "risky_command_blocked", severity: "blocking" }),
@@ -587,20 +587,20 @@ describe("MissionStore", () => {
 
   it("requires an approved gate before allow-risky validation executes risky commands", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-risky-gate",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-risky-gate",
         goal: "Risky validation gate",
         actor: "local-user",
         acceptance: [],
         validationCommands: ["rm -rf ./definitely-risky"],
       });
 
-      const missingGate = await store.validate("mission-risky-gate", "validator-agent", {
+      const missingGate = await store.validate("work-risky-gate", "validator-agent", {
         allowRisky: true,
       });
       expect(missingGate.exitCode).toBe(3);
-      expect(await store.readSupervisorSignals("mission-risky-gate")).toContainEqual(
+      expect(await store.readSupervisorSignals("work-risky-gate")).toContainEqual(
         expect.objectContaining({
           type: "gate_waiting",
           severity: "blocking",
@@ -608,65 +608,65 @@ describe("MissionStore", () => {
         }),
       );
 
-      await store.approve("mission-risky-gate", "local-user", "approve_risky_command");
-      const approved = await store.validate("mission-risky-gate", "validator-agent", {
+      await store.approve("work-risky-gate", "local-user", "approve_risky_command");
+      const approved = await store.validate("work-risky-gate", "validator-agent", {
         allowRisky: true,
       });
 
       expect(approved.exitCode).toBe(0);
-      expect((await store.readMission("mission-risky-gate")).status).toBe("validated");
+      expect((await store.readWork("work-risky-gate")).status).toBe("validated");
     });
   });
 
   it("blocks validation commands outside a project allowlist policy", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
+      const store = new WorkStore(repo);
       const command = `${bunBin} --version`;
-      await store.createMission({
-        id: "mission-command-policy",
+      await store.createWork({
+        id: "work-command-policy",
         goal: "Command policy",
         actor: "local-user",
         acceptance: [],
         validationCommands: [command],
       });
       await writeFile(
-        join(repo, ".missions", "policy.yaml"),
+        join(repo, ".supermission", "policy.yaml"),
         YAML.stringify({ validation_allowlist: ["bun run test"] }),
         "utf8",
       );
 
-      const blocked = await store.validate("mission-command-policy", "validator-agent");
+      const blocked = await store.validate("work-command-policy", "validator-agent");
       expect(blocked.exitCode).toBe(4);
-      expect(await store.diagnoseMission("mission-command-policy")).toContainEqual(
+      expect(await store.diagnoseWork("work-command-policy")).toContainEqual(
         expect.objectContaining({ code: "command_policy_blocked", severity: "blocking" }),
       );
 
       await writeFile(
-        join(repo, ".missions", "policy.yaml"),
+        join(repo, ".supermission", "policy.yaml"),
         YAML.stringify({ validation_allowlist: [`${bunBin} *`] }),
         "utf8",
       );
-      const allowed = await store.validate("mission-command-policy", "validator-agent");
+      const allowed = await store.validate("work-command-policy", "validator-agent");
       expect(allowed.exitCode).toBe(0);
     });
   });
 
   it("emits repeated failure signals when validation keeps failing the same command", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
+      const store = new WorkStore(repo);
       const command = `${bunBin} -e "process.exit(5)"`;
-      await store.createMission({
-        id: "mission-repeated-failure",
+      await store.createWork({
+        id: "work-repeated-failure",
         goal: "Repeated validation failure",
         actor: "local-user",
         acceptance: [],
         validationCommands: [command],
       });
 
-      await store.validate("mission-repeated-failure", "validator-agent");
-      await store.validate("mission-repeated-failure", "validator-agent");
+      await store.validate("work-repeated-failure", "validator-agent");
+      await store.validate("work-repeated-failure", "validator-agent");
 
-      const signals = await store.readSupervisorSignals("mission-repeated-failure");
+      const signals = await store.readSupervisorSignals("work-repeated-failure");
       expect(signals).toContainEqual(
         expect.objectContaining({
           type: "repeated_failure",
@@ -674,7 +674,7 @@ describe("MissionStore", () => {
           message: expect.stringContaining("2 attempts"),
         }),
       );
-      expect(await store.diagnoseMission("mission-repeated-failure")).toContainEqual(
+      expect(await store.diagnoseWork("work-repeated-failure")).toContainEqual(
         expect.objectContaining({ code: "repeated_failure", severity: "blocking" }),
       );
     });
@@ -682,22 +682,22 @@ describe("MissionStore", () => {
 
   it("emits supervisor signal when validation commands are missing", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-blocked",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-blocked",
         goal: "Needs validation",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
 
-      const result = await store.validate("mission-blocked", "validator-agent");
+      const result = await store.validate("work-blocked", "validator-agent");
       const signals = await readJsonl(
-        join(repo, ".missions", "mission-blocked", "supervisor-signals.jsonl"),
+        join(repo, ".supermission", "work-blocked", "supervisor-signals.jsonl"),
       );
 
       expect(result.exitCode).toBe(2);
-      expect((await store.readMission("mission-blocked")).status).toBe("blocked");
+      expect((await store.readWork("work-blocked")).status).toBe("blocked");
       expect(signals).toContainEqual(
         expect.objectContaining({ type: "validation_missing", severity: "blocking" }),
       );
@@ -706,34 +706,34 @@ describe("MissionStore", () => {
 
   it("records controlled change proposals and restores previous status after approval", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-change",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-change",
         goal: "Controlled change",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      await store.writePlan("mission-change", "planner-agent");
-      await store.approve("mission-change", "local-user");
+      await store.writePlan("work-change", "planner-agent");
+      await store.approve("work-change", "local-user");
 
-      const proposal = await store.proposeChange("mission-change", {
+      const proposal = await store.proposeChange("work-change", {
         actor: "worker-agent",
         sourceKind: "agent",
         type: "api_contract",
         risk: "medium",
         reason: "Need to expose a typed error code for validation.",
         affected: ["acceptance", "src/api/**"],
-        options: ["expand_scope", "split_mission"],
+        options: ["expand_scope", "split_work"],
         recommendation: "expand_scope",
       });
 
       expect(proposal.id).toBe("change-001");
       expect(proposal.requires_gate).toBe("approve_api_change");
-      expect((await store.readMission("mission-change")).status).toBe("needs_decision");
+      expect((await store.readWork("work-change")).status).toBe("needs_decision");
 
       const approved = await store.decideChange(
-        "mission-change",
+        "work-change",
         "change-001",
         "approved",
         "local-user",
@@ -741,44 +741,44 @@ describe("MissionStore", () => {
       );
 
       expect(approved.status).toBe("approved");
-      expect((await store.readMission("mission-change")).status).toBe("approved");
+      expect((await store.readWork("work-change")).status).toBe("approved");
 
-      const eventTypes = (await store.readEvents("mission-change")).map((event) => event.type);
+      const eventTypes = (await store.readEvents("work-change")).map((event) => event.type);
       expect(eventTypes).toContain("change.proposed");
       expect(eventTypes).toContain("change.approved");
       expect(eventTypes).toContain("gate.approved");
     });
   });
 
-  it("applies approved change proposals to the mission spec with evidence", async () => {
+  it("applies approved change proposals to the work spec with evidence", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-change-apply",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-change-apply",
         goal: "Apply controlled change",
         actor: "local-user",
         acceptance: ["Original acceptance"],
         validationCommands: [],
       });
-      await store.proposeChange("mission-change-apply", {
+      await store.proposeChange("work-change-apply", {
         actor: "worker-agent",
         sourceKind: "agent",
         type: "workflow",
         risk: "low",
         reason: "Need explicit evidence before completion.",
         affected: ["acceptance", "validation"],
-        options: ["update_mission_spec"],
-        recommendation: "update_mission_spec",
+        options: ["update_work_spec"],
+        recommendation: "update_work_spec",
       });
       await store.decideChange(
-        "mission-change-apply",
+        "work-change-apply",
         "change-001",
         "approved",
         "local-user",
         "Evidence update is in scope.",
       );
 
-      const applied = await store.applyChange("mission-change-apply", "change-001", {
+      const applied = await store.applyChange("work-change-apply", "change-001", {
         actor: "local-user",
         acceptance: ["Validation evidence is recorded"],
         validationCommands: [`${bunBin} --version`],
@@ -787,7 +787,7 @@ describe("MissionStore", () => {
         note: "Applied after approval.",
       });
 
-      const spec = await store.readMission("mission-change-apply");
+      const spec = await store.readWork("work-change-apply");
       expect(spec.acceptance).toEqual(["Original acceptance", "Validation evidence is recorded"]);
       expect(spec.validation_commands).toEqual([`${bunBin} --version`]);
       expect(spec.workflow).toContain("review");
@@ -799,12 +799,12 @@ describe("MissionStore", () => {
         "Review validation evidence before handoff.",
       ]);
       expect(
-        await readFile(join(repo, ".missions", "mission-change-apply", "decisions.md"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-change-apply", "decisions.md"), "utf8"),
       ).toContain("change-001 Applied");
       expect(
-        await readFile(join(repo, ".missions", "mission-change-apply", "plan.md"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-change-apply", "plan.md"), "utf8"),
       ).toContain("Review validation evidence before handoff.");
-      expect((await store.readEvents("mission-change-apply")).map((event) => event.type)).toContain(
+      expect((await store.readEvents("work-change-apply")).map((event) => event.type)).toContain(
         "change.applied",
       );
     });
@@ -812,26 +812,26 @@ describe("MissionStore", () => {
 
   it("rejects applying changes before approval", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-change-apply-gate",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-change-apply-gate",
         goal: "Require approval before apply",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      await store.proposeChange("mission-change-apply-gate", {
+      await store.proposeChange("work-change-apply-gate", {
         actor: "local-user",
         sourceKind: "human",
         type: "workflow",
         risk: "low",
         reason: "Try to skip approval.",
         affected: ["acceptance"],
-        options: ["update_mission_spec"],
+        options: ["update_work_spec"],
       });
 
       await expect(
-        store.applyChange("mission-change-apply-gate", "change-001", {
+        store.applyChange("work-change-apply-gate", "change-001", {
           actor: "local-user",
           acceptance: ["New acceptance"],
           validationCommands: [],
@@ -844,15 +844,15 @@ describe("MissionStore", () => {
 
   it("rejects an already decided change", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-change-reject",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-change-reject",
         goal: "Reject duplicate decision",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      await store.proposeChange("mission-change-reject", {
+      await store.proposeChange("work-change-reject", {
         actor: "local-user",
         sourceKind: "human",
         type: "workflow",
@@ -861,59 +861,64 @@ describe("MissionStore", () => {
         affected: ["plan.md"],
         options: [],
       });
-      await store.decideChange("mission-change-reject", "change-001", "rejected", "local-user");
+      await store.decideChange("work-change-reject", "change-001", "rejected", "local-user");
 
       await expect(
-        store.decideChange("mission-change-reject", "change-001", "approved", "local-user"),
+        store.decideChange("work-change-reject", "change-001", "approved", "local-user"),
       ).rejects.toThrow("already rejected");
     });
   });
 
-  it("keeps generated mission.yaml schema-valid", async () => {
+  it("keeps generated work.yaml schema-valid", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-schema",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-schema",
         goal: "Schema validation",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const yaml = await readFile(
-        join(repo, ".missions", "mission-schema", "mission.yaml"),
-        "utf8",
-      );
-      expect(() => MissionSpecSchema.parse(YAML.parse(yaml))).not.toThrow();
+      const yaml = await readFile(join(repo, ".supermission", "work-schema", "work.yaml"), "utf8");
+      expect(() => WorkSpecSchema.parse(YAML.parse(yaml))).not.toThrow();
     });
   });
 
   it("captures git diff and non-destructive checkpoints", async () => {
     await withTempRepo(async (repo) => {
-      await mkdir(join(repo, ".missions", "tracked"), { recursive: true });
+      await mkdir(join(repo, ".supermission", "tracked"), { recursive: true });
       await writeFile(join(repo, "app.txt"), "before\n", "utf8");
-      await writeFile(join(repo, ".missions", "tracked", "record.md"), "record before\n", "utf8");
-      await runProcess("git", ["add", "app.txt", ".missions/tracked/record.md"], { cwd: repo });
+      await writeFile(
+        join(repo, ".supermission", "tracked", "record.md"),
+        "record before\n",
+        "utf8",
+      );
+      await runProcess("git", ["add", "app.txt", ".supermission/tracked/record.md"], { cwd: repo });
       await runProcess(
         "git",
         ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "initial"],
         { cwd: repo },
       );
       await writeFile(join(repo, "app.txt"), "after\n", "utf8");
-      await writeFile(join(repo, ".missions", "tracked", "record.md"), "record after\n", "utf8");
+      await writeFile(
+        join(repo, ".supermission", "tracked", "record.md"),
+        "record after\n",
+        "utf8",
+      );
       await writeFile(join(repo, "new-file.txt"), "new file\n", "utf8");
 
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-checkpoint",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-checkpoint",
         goal: "Checkpoint diff",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
 
-      const diff = await store.captureDiff("mission-checkpoint", "local-user");
+      const diff = await store.captureDiff("work-checkpoint", "local-user");
       const checkpoint = await store.createCheckpoint(
-        "mission-checkpoint",
+        "work-checkpoint",
         "local-user",
         "before review",
       );
@@ -924,56 +929,56 @@ describe("MissionStore", () => {
       expect(diff).not.toContain("record after");
       expect(checkpoint.id).toBe("checkpoint-001");
       const patch = await readFile(
-        join(repo, ".missions", "mission-checkpoint", "checkpoints", "checkpoint-001.patch"),
+        join(repo, ".supermission", "work-checkpoint", "checkpoints", "checkpoint-001.patch"),
         "utf8",
       );
       expect(patch).toContain("+after");
       expect(patch).toContain("new-file.txt");
       expect(patch).not.toContain("record after");
       expect(
-        await readFile(join(repo, ".missions", "mission-checkpoint", "patch.diff"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-checkpoint", "patch.diff"), "utf8"),
       ).toContain("+after");
-      expect(await store.listCheckpoints("mission-checkpoint")).toHaveLength(1);
+      expect(await store.listCheckpoints("work-checkpoint")).toHaveLength(1);
     });
   });
 
   it("persists stable record ids for telemetry, tool calls, and supervisor signals", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-record-ids",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-record-ids",
         goal: "Persist record ids",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
 
-      await store.appendTelemetry("mission-record-ids", {
+      await store.appendTelemetry("work-record-ids", {
         metric: "custom.metric",
         status: "ok",
       });
-      await store.appendToolCall("mission-record-ids", {
+      await store.appendToolCall("work-record-ids", {
         actor: "validator-agent",
         tool: "shell",
         command: `${bunBin} --version`,
         exit_code: 0,
       });
-      await store.appendSupervisorSignal("mission-record-ids", {
+      await store.appendSupervisorSignal("work-record-ids", {
         type: "stuck",
         severity: "warning",
         message: "Task has not advanced.",
       });
 
       expect(
-        (await store.readTelemetry("mission-record-ids")).map((record) => record.record_id),
+        (await store.readTelemetry("work-record-ids")).map((record) => record.record_id),
       ).toEqual(["telemetry-000001", "telemetry-000002"]);
-      expect(await store.readToolCalls("mission-record-ids")).toContainEqual(
+      expect(await store.readToolCalls("work-record-ids")).toContainEqual(
         expect.objectContaining({ record_id: "tool-call-000001", tool: "shell" }),
       );
-      expect(await store.readSupervisorSignals("mission-record-ids")).toContainEqual(
+      expect(await store.readSupervisorSignals("work-record-ids")).toContainEqual(
         expect.objectContaining({ record_id: "signal-000001", type: "stuck" }),
       );
-      expect(await store.readEvents("mission-record-ids")).toContainEqual(
+      expect(await store.readEvents("work-record-ids")).toContainEqual(
         expect.objectContaining({
           type: "supervisor.signal",
           actor: "supervisor-agent",
@@ -982,11 +987,11 @@ describe("MissionStore", () => {
         }),
       );
       expect(
-        await readFile(join(repo, ".missions", "mission-record-ids", "tool-calls.jsonl"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-record-ids", "tool-calls.jsonl"), "utf8"),
       ).toContain('"record_id":"tool-call-000001"');
       expect(
         await readFile(
-          join(repo, ".missions", "mission-record-ids", "supervisor-signals.jsonl"),
+          join(repo, ".supermission", "work-record-ids", "supervisor-signals.jsonl"),
           "utf8",
         ),
       ).toContain('"record_id":"signal-000001"');
@@ -995,15 +1000,15 @@ describe("MissionStore", () => {
 
   it("synthesizes typed fallback record ids for older JSONL records", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-legacy-records",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-legacy-records",
         goal: "Read old records",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const paths = store.paths("mission-legacy-records");
+      const paths = store.paths("work-legacy-records");
       await writeFile(paths.events, '{"type":"legacy.event","actor":"legacy","time":"now"}\n');
       await writeFile(paths.telemetry, '{"metric":"legacy.metric","time":"now"}\n');
       await writeFile(
@@ -1015,14 +1020,14 @@ describe("MissionStore", () => {
         '{"type":"stuck","severity":"warning","message":"legacy","time":"now"}\n',
       );
 
-      expect((await store.readEvents("mission-legacy-records"))[0]?.record_id).toBe("event-000001");
-      expect((await store.readTelemetry("mission-legacy-records"))[0]?.record_id).toBe(
+      expect((await store.readEvents("work-legacy-records"))[0]?.record_id).toBe("event-000001");
+      expect((await store.readTelemetry("work-legacy-records"))[0]?.record_id).toBe(
         "telemetry-000001",
       );
-      expect((await store.readToolCalls("mission-legacy-records"))[0]?.record_id).toBe(
+      expect((await store.readToolCalls("work-legacy-records"))[0]?.record_id).toBe(
         "tool-call-000001",
       );
-      expect((await store.readSupervisorSignals("mission-legacy-records"))[0]?.record_id).toBe(
+      expect((await store.readSupervisorSignals("work-legacy-records"))[0]?.record_id).toBe(
         "signal-000001",
       );
     });
@@ -1030,9 +1035,9 @@ describe("MissionStore", () => {
 
   it("does not append state change evidence when status is unchanged", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-idempotent-status",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-idempotent-status",
         goal: "Avoid duplicate state events",
         actor: "local-user",
         acceptance: [],
@@ -1040,24 +1045,24 @@ describe("MissionStore", () => {
       });
 
       await store.updateStatus(
-        "mission-idempotent-status",
+        "work-idempotent-status",
         "planned",
         "planner-agent",
         "plan is ready",
       );
-      const eventsBefore = await store.readEvents("mission-idempotent-status");
-      const telemetryBefore = await store.readTelemetry("mission-idempotent-status");
+      const eventsBefore = await store.readEvents("work-idempotent-status");
+      const telemetryBefore = await store.readTelemetry("work-idempotent-status");
 
-      await store.updateStatus("mission-idempotent-status", "planned", "planner-agent");
+      await store.updateStatus("work-idempotent-status", "planned", "planner-agent");
 
-      const eventsAfter = await store.readEvents("mission-idempotent-status");
-      const telemetryAfter = await store.readTelemetry("mission-idempotent-status");
+      const eventsAfter = await store.readEvents("work-idempotent-status");
+      const telemetryAfter = await store.readTelemetry("work-idempotent-status");
       expect(eventsAfter).toHaveLength(eventsBefore.length);
       expect(telemetryAfter).toHaveLength(telemetryBefore.length);
-      expect(eventsAfter.filter((event) => event.type === "mission.state.changed")).toHaveLength(1);
+      expect(eventsAfter.filter((event) => event.type === "work.state.changed")).toHaveLength(1);
       expect(eventsAfter).toContainEqual(
         expect.objectContaining({
-          type: "mission.state.changed",
+          type: "work.state.changed",
           actor: "planner-agent",
           from: "draft",
           to: "planned",
@@ -1091,15 +1096,15 @@ describe("MissionStore", () => {
       await writeFile(join(repo, "src", "new.ts"), "export const added = true;\n", "utf8");
       await writeFile(join(repo, "docs", "new.md"), "new docs\n", "utf8");
 
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-scoped-patch",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-scoped-patch",
         goal: "Scoped patch",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const task = await store.addTask("mission-scoped-patch", {
+      const task = await store.addTask("work-scoped-patch", {
         actor: "local-user",
         title: "Source-only change",
         actorRole: "worker-agent",
@@ -1110,11 +1115,11 @@ describe("MissionStore", () => {
         validation: [],
       });
 
-      const diff = await store.captureDiff("mission-scoped-patch", "local-user", {
+      const diff = await store.captureDiff("work-scoped-patch", "local-user", {
         taskId: task.id,
       });
       const checkpoint = await store.createCheckpoint(
-        "mission-scoped-patch",
+        "work-scoped-patch",
         "local-user",
         "source-only",
         { taskId: task.id },
@@ -1126,17 +1131,17 @@ describe("MissionStore", () => {
       expect(diff).not.toContain("docs/notes.md");
       expect(diff).not.toContain("docs/new.md");
       const checkpointPatch = await readFile(
-        join(repo, ".missions", "mission-scoped-patch", "checkpoints", `${checkpoint.id}.patch`),
+        join(repo, ".supermission", "work-scoped-patch", "checkpoints", `${checkpoint.id}.patch`),
         "utf8",
       );
       expect(checkpointPatch).toContain("src/app.ts");
       expect(checkpointPatch).toContain("src/new.ts");
       expect(checkpointPatch).not.toContain("docs/notes.md");
       expect(checkpointPatch).not.toContain("docs/new.md");
-      expect(await store.readSupervisorSignals("mission-scoped-patch")).toContainEqual(
+      expect(await store.readSupervisorSignals("work-scoped-patch")).toContainEqual(
         expect.objectContaining({ type: "scope_drift", severity: "blocking" }),
       );
-      expect((await store.readEvents("mission-scoped-patch")).map((event) => event.type)).toContain(
+      expect((await store.readEvents("work-scoped-patch")).map((event) => event.type)).toContain(
         "scope.audit.created",
       );
     });
@@ -1154,49 +1159,45 @@ describe("MissionStore", () => {
       const branchBefore = (
         await runProcess("git", ["branch", "--show-current"], { cwd: repo })
       ).stdout.trim();
-      const worktreePath = join(repo, "..", `mission-wt-${randomUUID()}`);
+      const worktreePath = join(repo, "..", `work-wt-${randomUUID()}`);
 
       try {
-        const store = new MissionStore(repo);
-        await store.createMission({
-          id: "mission-isolation",
+        const store = new WorkStore(repo);
+        await store.createWork({
+          id: "work-isolation",
           goal: "Git isolation",
           actor: "local-user",
           acceptance: [],
           validationCommands: [],
         });
-        const branch = await store.createBranch("mission-isolation", {
+        const branch = await store.createBranch("work-isolation", {
           actor: "local-user",
-          branch: "mission/isolation-branch",
+          branch: "work/isolation-branch",
         });
-        expect(branch.branch).toBe("mission/isolation-branch");
+        expect(branch.branch).toBe("work/isolation-branch");
         expect(
           (await runProcess("git", ["branch", "--show-current"], { cwd: repo })).stdout.trim(),
         ).toBe(branchBefore);
 
-        const worktree = await store.createWorktree("mission-isolation", {
+        const worktree = await store.createWorktree("work-isolation", {
           actor: "local-user",
           path: worktreePath,
-          branch: "mission/isolation-worktree",
+          branch: "work/isolation-worktree",
         });
         expect(worktree.worktree_path).toBe(worktreePath);
 
         await writeFile(join(repo, "app.txt"), "after\n", "utf8");
         const checkpoint = await store.createCheckpoint(
-          "mission-isolation",
+          "work-isolation",
           "local-user",
           "before rollback plan",
         );
         const rollbackCheck = await store.checkRollback(
-          "mission-isolation",
+          "work-isolation",
           "local-user",
           checkpoint.id,
         );
-        const plan = await store.writeRollbackPlan(
-          "mission-isolation",
-          "local-user",
-          checkpoint.id,
-        );
+        const plan = await store.writeRollbackPlan("work-isolation", "local-user", checkpoint.id);
 
         expect(rollbackCheck).toMatchObject({ ok: true, checkpoint: checkpoint.id });
         expect(plan).toContain("Automatic rollback is intentionally not enabled yet.");
@@ -1204,12 +1205,12 @@ describe("MissionStore", () => {
 
         await writeFile(join(repo, "app.txt"), "conflicting\n", "utf8");
         const blockedRollback = await store.checkRollback(
-          "mission-isolation",
+          "work-isolation",
           "local-user",
           checkpoint.id,
         );
         expect(blockedRollback.ok).toBe(false);
-        expect(await store.readSupervisorSignals("mission-isolation")).toContainEqual(
+        expect(await store.readSupervisorSignals("work-isolation")).toContainEqual(
           expect.objectContaining({ type: "merge_conflict", severity: "blocking" }),
         );
       } finally {
@@ -1219,23 +1220,23 @@ describe("MissionStore", () => {
     });
   });
 
-  it("diagnoses blocking and healthy mission states", async () => {
+  it("diagnoses blocking and healthy work states", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-doctor",
-        goal: "Doctor mission",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-doctor",
+        goal: "Doctor work",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
 
-      const blocked = await store.diagnoseMission("mission-doctor");
+      const blocked = await store.diagnoseWork("work-doctor");
       expect(blocked).toContainEqual(
         expect.objectContaining({ code: "validation_missing", severity: "blocking" }),
       );
 
-      await store.proposeChange("mission-doctor", {
+      await store.proposeChange("work-doctor", {
         actor: "local-user",
         sourceKind: "human",
         type: "workflow",
@@ -1244,19 +1245,19 @@ describe("MissionStore", () => {
         affected: ["validation"],
         options: ["manual_validation"],
       });
-      const withChange = await store.diagnoseMission("mission-doctor");
+      const withChange = await store.diagnoseWork("work-doctor");
       expect(withChange).toContainEqual(
         expect.objectContaining({ code: "pending_change", severity: "blocking" }),
       );
 
-      await store.createMission({
-        id: "mission-doctor-healthy",
-        goal: "Healthy mission",
+      await store.createWork({
+        id: "work-doctor-healthy",
+        goal: "Healthy work",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} --version`],
       });
-      expect(await store.diagnoseMission("mission-doctor-healthy")).toContainEqual(
+      expect(await store.diagnoseWork("work-doctor-healthy")).toContainEqual(
         expect.objectContaining({ code: "healthy", severity: "info" }),
       );
     });
@@ -1264,15 +1265,15 @@ describe("MissionStore", () => {
 
   it("diagnoses stale running tasks as stuck", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-stuck-task",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-stuck-task",
         goal: "Detect stale task",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} --version`],
       });
-      const taskPath = join(repo, ".missions", "mission-stuck-task", "tasks", "task-001.yaml");
+      const taskPath = join(repo, ".supermission", "work-stuck-task", "tasks", "task-001.yaml");
       const task = YAML.parse(await readFile(taskPath, "utf8"));
       await writeFile(
         taskPath,
@@ -1280,7 +1281,7 @@ describe("MissionStore", () => {
         "utf8",
       );
 
-      expect(await store.diagnoseMission("mission-stuck-task")).toContainEqual(
+      expect(await store.diagnoseWork("work-stuck-task")).toContainEqual(
         expect.objectContaining({ code: "stuck", severity: "warning" }),
       );
     });
@@ -1288,15 +1289,15 @@ describe("MissionStore", () => {
 
   it("does not diagnose recently updated running tasks as stuck", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-active-task",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-active-task",
         goal: "Do not flag active task",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} --version`],
       });
-      const taskPath = join(repo, ".missions", "mission-active-task", "tasks", "task-001.yaml");
+      const taskPath = join(repo, ".supermission", "work-active-task", "tasks", "task-001.yaml");
       const task = YAML.parse(await readFile(taskPath, "utf8"));
       await writeFile(
         taskPath,
@@ -1304,7 +1305,7 @@ describe("MissionStore", () => {
         "utf8",
       );
 
-      expect(await store.diagnoseMission("mission-active-task")).not.toContainEqual(
+      expect(await store.diagnoseWork("work-active-task")).not.toContainEqual(
         expect.objectContaining({ code: "stuck" }),
       );
     });
@@ -1312,60 +1313,60 @@ describe("MissionStore", () => {
 
   it("does not mark handoff stale only because completion status was recorded", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-handoff-fresh",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-handoff-fresh",
         goal: "Fresh handoff",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} --version`],
       });
-      await store.validate("mission-handoff-fresh", "validator-agent");
-      await store.createCheckpoint("mission-handoff-fresh", "local-user", "before handoff");
-      await store.writeHandoff("mission-handoff-fresh", "handoff-agent");
+      await store.validate("work-handoff-fresh", "validator-agent");
+      await store.createCheckpoint("work-handoff-fresh", "local-user", "before handoff");
+      await store.writeHandoff("work-handoff-fresh", "handoff-agent");
 
-      expect(await store.diagnoseMission("mission-handoff-fresh")).not.toContainEqual(
+      expect(await store.diagnoseWork("work-handoff-fresh")).not.toContainEqual(
         expect.objectContaining({ code: "handoff_stale" }),
       );
     });
   });
 
-  it("writes a review artifact from mission evidence", async () => {
+  it("writes a review artifact from work evidence", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-review",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-review",
         goal: "Review artifact",
         actor: "local-user",
         acceptance: ["Review exists"],
         validationCommands: [`${bunBin} --version`],
       });
-      await store.validate("mission-review", "validator-agent");
-      await store.createCheckpoint("mission-review", "local-user", "before review");
-      const review = await store.writeReview("mission-review", "human-reviewer");
+      await store.validate("work-review", "validator-agent");
+      await store.createCheckpoint("work-review", "local-user", "before review");
+      const review = await store.writeReview("work-review", "human-reviewer");
 
       expect(review).toContain("## Review Focus");
       expect(review).toContain("## Health Findings");
       expect(review).toContain("checkpoint-001");
       expect(
-        await readFile(join(repo, ".missions", "mission-review", "review.md"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-review", "review.md"), "utf8"),
       ).toContain("Reviewer: human-reviewer");
     });
   });
 
-  it("summarizes mission state for human review", async () => {
+  it("summarizes work state for human review", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-summary",
-        goal: "Summary mission",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-summary",
+        goal: "Summary work",
         actor: "local-user",
         acceptance: [],
         validationCommands: [`${bunBin} --version`],
       });
-      const summary = await store.summarizeMission("mission-summary");
+      const summary = await store.summarizeWork("work-summary");
 
-      expect(summary.id).toBe("mission-summary");
+      expect(summary.id).toBe("work-summary");
       expect(summary.tasks).toBe(1);
       expect(summary.validation_commands).toBe(1);
       expect(summary.artifacts).toHaveProperty("events");
@@ -1374,18 +1375,18 @@ describe("MissionStore", () => {
 
   it("generates a monitor report with next actions and recent signals", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-monitor",
-        goal: "Monitor mission",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-monitor",
+        goal: "Monitor work",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      await store.validate("mission-monitor", "validator-agent");
+      await store.validate("work-monitor", "validator-agent");
 
-      const monitor = await store.monitorMission("mission-monitor");
-      const report = await store.writeMonitor("mission-monitor", "supervisor-agent");
+      const monitor = await store.monitorWork("work-monitor");
+      const report = await store.writeMonitor("work-monitor", "supervisor-agent");
 
       expect(monitor.status).toBe("blocked");
       expect(monitor.recent_signals).toContainEqual(
@@ -1395,28 +1396,28 @@ describe("MissionStore", () => {
       expect(report).toContain("## Next Actions");
       expect(report).toContain("validation_missing");
       expect(
-        await readFile(join(repo, ".missions", "mission-monitor", "monitor.md"), "utf8"),
-      ).toContain("Mission: mission-monitor");
+        await readFile(join(repo, ".supermission", "work-monitor", "monitor.md"), "utf8"),
+      ).toContain("Work: work-monitor");
     });
   });
 
   it("adds sidecar tasks and records task status changes", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-task",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-task",
         goal: "Task ledger",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const task = await store.addTask("mission-task", {
+      const task = await store.addTask("work-task", {
         actor: "local-user",
         title: "Research related tools",
         actorRole: "research-agent",
         mutationMode: "sidecar_artifact",
         dependsOn: [],
-        scopeAllow: [".missions/**"],
+        scopeAllow: [".supermission/**"],
         scopeDeny: ["src/**"],
         validation: [],
       });
@@ -1424,9 +1425,9 @@ describe("MissionStore", () => {
       expect(task.status).toBe("ready");
       expect(task.mutation_mode).toBe("sidecar_artifact");
 
-      const updated = await store.setTaskStatus("mission-task", task.id, "done", "research-agent");
+      const updated = await store.setTaskStatus("work-task", task.id, "done", "research-agent");
       expect(updated.status).toBe("done");
-      const events = await store.readEvents("mission-task");
+      const events = await store.readEvents("work-task");
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "task.created",
@@ -1450,58 +1451,58 @@ describe("MissionStore", () => {
 
   it("unblocks dependent tasks only after all dependencies are done", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-task-deps",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-task-deps",
         goal: "Task dependencies",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const first = await store.addTask("mission-task-deps", {
+      const first = await store.addTask("work-task-deps", {
         actor: "local-user",
         title: "Prepare artifact",
         actorRole: "research-agent",
         mutationMode: "sidecar_artifact",
         dependsOn: [],
-        scopeAllow: [".missions/**"],
+        scopeAllow: [".supermission/**"],
         scopeDeny: ["src/**"],
         validation: [],
       });
-      const second = await store.addTask("mission-task-deps", {
+      const second = await store.addTask("work-task-deps", {
         actor: "local-user",
         title: "Review artifact",
         actorRole: "reviewer-agent",
         mutationMode: "sidecar_readonly",
         dependsOn: [first.id],
-        scopeAllow: [".missions/**"],
+        scopeAllow: [".supermission/**"],
         scopeDeny: ["src/**"],
         validation: [],
       });
-      const third = await store.addTask("mission-task-deps", {
+      const third = await store.addTask("work-task-deps", {
         actor: "local-user",
         title: "Publish after both prerequisites",
         actorRole: "handoff-agent",
         mutationMode: "sidecar_artifact",
         dependsOn: [first.id, second.id],
-        scopeAllow: [".missions/**"],
+        scopeAllow: [".supermission/**"],
         scopeDeny: ["src/**"],
         validation: [],
       });
 
       expect(second.status).toBe("pending");
       expect(third.status).toBe("pending");
-      await store.setTaskStatus("mission-task-deps", first.id, "done", "research-agent");
+      await store.setTaskStatus("work-task-deps", first.id, "done", "research-agent");
 
-      expect((await store.readTask("mission-task-deps", second.id)).status).toBe("ready");
-      expect((await store.readTask("mission-task-deps", third.id)).status).toBe("pending");
-      await store.setTaskStatus("mission-task-deps", second.id, "done", "reviewer-agent");
+      expect((await store.readTask("work-task-deps", second.id)).status).toBe("ready");
+      expect((await store.readTask("work-task-deps", third.id)).status).toBe("pending");
+      await store.setTaskStatus("work-task-deps", second.id, "done", "reviewer-agent");
 
-      expect((await store.readTask("mission-task-deps", third.id)).status).toBe("ready");
-      expect((await store.readEvents("mission-task-deps")).map((event) => event.type)).toContain(
+      expect((await store.readTask("work-task-deps", third.id)).status).toBe("ready");
+      expect((await store.readEvents("work-task-deps")).map((event) => event.type)).toContain(
         "task.unblocked",
       );
-      expect(await store.readEvents("mission-task-deps")).toContainEqual(
+      expect(await store.readEvents("work-task-deps")).toContainEqual(
         expect.objectContaining({
           type: "task.unblocked",
           task: "task-004",
@@ -1513,9 +1514,9 @@ describe("MissionStore", () => {
 
   it("rejects tasks that depend on unknown task ids", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-unknown-dep",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-unknown-dep",
         goal: "Unknown dependency",
         actor: "local-user",
         acceptance: [],
@@ -1523,7 +1524,7 @@ describe("MissionStore", () => {
       });
 
       await expect(
-        store.addTask("mission-unknown-dep", {
+        store.addTask("work-unknown-dep", {
           actor: "local-user",
           title: "Blocked by missing task",
           actorRole: "worker-agent",
@@ -1539,15 +1540,15 @@ describe("MissionStore", () => {
 
   it("allows parallel sidecar tasks but blocks concurrent linear writes", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-linear-lock",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-linear-lock",
         goal: "Linear mutation lock",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const linear = await store.addTask("mission-linear-lock", {
+      const linear = await store.addTask("work-linear-lock", {
         actor: "local-user",
         title: "Second linear mutation",
         actorRole: "worker-agent",
@@ -1557,30 +1558,30 @@ describe("MissionStore", () => {
         scopeDeny: [],
         validation: [],
       });
-      const sidecar = await store.addTask("mission-linear-lock", {
+      const sidecar = await store.addTask("work-linear-lock", {
         actor: "local-user",
         title: "Parallel test planning",
         actorRole: "tester-agent",
         mutationMode: "sidecar_artifact",
         dependsOn: [],
-        scopeAllow: [".missions/**"],
+        scopeAllow: [".supermission/**"],
         scopeDeny: ["src/**"],
         validation: [],
       });
 
-      await store.setTaskStatus("mission-linear-lock", "task-001", "running", "worker-agent");
+      await store.setTaskStatus("work-linear-lock", "task-001", "running", "worker-agent");
       await expect(
-        store.setTaskStatus("mission-linear-lock", linear.id, "running", "worker-agent"),
+        store.setTaskStatus("work-linear-lock", linear.id, "running", "worker-agent"),
       ).rejects.toThrow("linear_write task task-001 is already running");
       await expect(
-        store.setTaskStatus("mission-linear-lock", sidecar.id, "running", "tester-agent"),
+        store.setTaskStatus("work-linear-lock", sidecar.id, "running", "tester-agent"),
       ).resolves.toMatchObject({ status: "running" });
       await expect(
-        store.setTaskStatus("mission-linear-lock", linear.id, "blocked", "worker-agent"),
+        store.setTaskStatus("work-linear-lock", linear.id, "blocked", "worker-agent"),
       ).resolves.toMatchObject({ status: "blocked" });
 
       const signals = await readJsonl(
-        join(repo, ".missions", "mission-linear-lock", "supervisor-signals.jsonl"),
+        join(repo, ".supermission", "work-linear-lock", "supervisor-signals.jsonl"),
       );
       expect(signals).toContainEqual(
         expect.objectContaining({ type: "linear_mutation_conflict", severity: "blocking" }),
@@ -1590,15 +1591,15 @@ describe("MissionStore", () => {
 
   it("audits task scope drift from current git changes", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-scope",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-scope",
         goal: "Scope audit",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
-      const task = await store.addTask("mission-scope", {
+      const task = await store.addTask("work-scope", {
         actor: "local-user",
         title: "Change source files",
         actorRole: "worker-agent",
@@ -1614,7 +1615,7 @@ describe("MissionStore", () => {
       await writeFile(join(repo, "src", "secrets", "key.ts"), "export const key = 'x';\n", "utf8");
       await writeFile(join(repo, "docs", "notes.md"), "outside\n", "utf8");
 
-      const result = await store.auditTaskScope("mission-scope", task.id, "supervisor-agent");
+      const result = await store.auditTaskScope("work-scope", task.id, "supervisor-agent");
 
       expect(result.changed_files).toEqual(["docs/notes.md", "src/app.ts", "src/secrets/key.ts"]);
       expect(result.violations).toEqual([
@@ -1622,9 +1623,9 @@ describe("MissionStore", () => {
         { file: "src/secrets/key.ts", reason: "denied" },
       ]);
       expect(
-        await readFile(join(repo, ".missions", "mission-scope", "scope-audit.md"), "utf8"),
+        await readFile(join(repo, ".supermission", "work-scope", "scope-audit.md"), "utf8"),
       ).toContain("src/secrets/key.ts");
-      expect(await store.diagnoseMission("mission-scope")).toContainEqual(
+      expect(await store.diagnoseWork("work-scope")).toContainEqual(
         expect.objectContaining({ code: "scope_drift", severity: "blocking" }),
       );
     });
@@ -1632,20 +1633,20 @@ describe("MissionStore", () => {
 
   it("keeps trace fast enough for 1000 events", async () => {
     await withTempRepo(async (repo) => {
-      const store = new MissionStore(repo);
-      await store.createMission({
-        id: "mission-performance",
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-performance",
         goal: "Performance budget",
         actor: "local-user",
         acceptance: [],
         validationCommands: [],
       });
       for (let index = 0; index < 1000; index += 1) {
-        await store.appendEvent("mission-performance", "test.event", "test-runner", { index });
+        await store.appendEvent("work-performance", "test.event", "test-runner", { index });
       }
 
       const started = performance.now();
-      const events = await store.readEvents("mission-performance");
+      const events = await store.readEvents("work-performance");
       const durationMs = performance.now() - started;
 
       expect(events).toHaveLength(1001);

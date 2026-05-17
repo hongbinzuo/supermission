@@ -39,7 +39,7 @@ Mission Control 不是只要“功能能跑”。
 对 Mission Control 的启发：
 
 - CLI/TUI/command palette 应是同一套 action model。
-- `mission new/plan/approve/validate/handoff` 要像高质量命令系统，而不是散乱脚本。
+- `supermission new/plan/approve/validate/handoff` 要像高质量命令系统，而不是散乱脚本。
 
 ### GitHub
 
@@ -107,7 +107,7 @@ Mission Control 不是只要“功能能跑”。
 
 对 Mission Control 的启发：
 
-- mission.yaml 是 desired work。
+- work.yaml 是 desired work。
 - events / telemetry 是 observed work。
 - supervisor-agent 类似 controller，不直接替代事实记录。
 

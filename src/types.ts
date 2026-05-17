@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isValidRedactionPattern } from "./redaction.js";
 
-export const MissionStatusSchema = z.enum([
+export const WorkStatusSchema = z.enum([
   "draft",
   "planned",
   "approved",
@@ -15,12 +15,12 @@ export const MissionStatusSchema = z.enum([
   "paused",
 ]);
 
-export type MissionStatus = z.infer<typeof MissionStatusSchema>;
+export type WorkStatus = z.infer<typeof WorkStatusSchema>;
 
-export const MissionSpecSchema = z.object({
+export const WorkSpecSchema = z.object({
   id: z.string().min(1),
   goal: z.string().min(1),
-  status: MissionStatusSchema,
+  status: WorkStatusSchema,
   owner: z.string().min(1),
   created_at: z.string().min(1),
   updated_at: z.string().min(1),
@@ -30,7 +30,7 @@ export const MissionSpecSchema = z.object({
   actors: z.array(z.string()).default([]),
 });
 
-export type MissionSpec = z.infer<typeof MissionSpecSchema>;
+export type WorkSpec = z.infer<typeof WorkSpecSchema>;
 
 export type EventRecord = {
   type: string;
@@ -56,7 +56,7 @@ const RedactionPatternSchema = z.string().min(1).refine(isValidRedactionPattern,
   message: "invalid regular expression",
 });
 
-export const MissionPolicySchema = z.object({
+export const WorkPolicySchema = z.object({
   validation_allowlist: z.array(z.string()).default([]),
   redaction: z
     .object({
@@ -65,7 +65,7 @@ export const MissionPolicySchema = z.object({
     .default({ patterns: [] }),
 });
 
-export type MissionPolicy = z.infer<typeof MissionPolicySchema>;
+export type WorkPolicy = z.infer<typeof WorkPolicySchema>;
 
 export const TaskStatusSchema = z.enum([
   "pending",
@@ -79,7 +79,7 @@ export const TaskStatusSchema = z.enum([
 
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
-export const MissionTaskSchema = z.object({
+export const WorkTaskSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   status: TaskStatusSchema,
@@ -99,7 +99,7 @@ export const MissionTaskSchema = z.object({
   updated_at: z.string().min(1),
 });
 
-export type MissionTask = z.infer<typeof MissionTaskSchema>;
+export type WorkTask = z.infer<typeof WorkTaskSchema>;
 
 export type SupervisorSignal = {
   type:
@@ -153,7 +153,7 @@ export const ChangeProposalSchema = z.object({
     actor: z.string().min(1),
     kind: z.enum(["human", "agent", "validation", "review", "system"]).default("human"),
   }),
-  previous_status: MissionStatusSchema,
+  previous_status: WorkStatusSchema,
   affected: z.array(z.string()).default([]),
   options: z.array(z.string()).default([]),
   recommendation: z.string().optional(),
@@ -184,7 +184,7 @@ export const ChangeProposalSchema = z.object({
 
 export type ChangeProposal = z.infer<typeof ChangeProposalSchema>;
 
-export const MissionCheckpointSchema = z.object({
+export const WorkCheckpointSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   actor: z.string().min(1),
@@ -193,7 +193,7 @@ export const MissionCheckpointSchema = z.object({
   created_at: z.string().min(1),
 });
 
-export type MissionCheckpoint = z.infer<typeof MissionCheckpointSchema>;
+export type WorkCheckpoint = z.infer<typeof WorkCheckpointSchema>;
 
 export const GitIsolationSchema = z.object({
   branch: z.string().optional(),

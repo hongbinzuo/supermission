@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bunBin, runMission, runProcess, withTempRepo } from "./helpers.js";
+import { bunBin, runWork, runProcess, withTempRepo } from "./helpers.js";
 
 const runnerSmokeBackends = new Set(
   (process.env.SUPERMISSION_RUNNER_SMOKE ?? "")
@@ -14,72 +14,67 @@ function shouldRunExternalSmoke(backend: "codex" | "claude"): boolean {
   return runnerSmokeBackends.has("all") || runnerSmokeBackends.has(backend);
 }
 
-describe("mission CLI", () => {
+describe("work CLI", () => {
   it("runs the V0 command flow as a black-box CLI", async () => {
     await withTempRepo(async (repo) => {
-      const created = await runMission(repo, [
+      const created = await runWork(repo, [
         "new",
         "Add login validation",
         "--id",
-        "mission-cli",
+        "work-cli",
         "--acceptance",
         "Invalid login shows an error",
         "--validation",
         `${bunBin} --version`,
       ]);
       expect(created.exitCode).toBe(0);
-      expect(created.stdout.trim()).toBe("mission-cli");
+      expect(created.stdout.trim()).toBe("work-cli");
 
       for (const args of [
-        ["plan", "mission-cli"],
-        ["approve", "mission-cli"],
-        ["run", "mission-cli", "--note", "external worker"],
-        ["validate", "mission-cli"],
-        ["handoff", "mission-cli"],
+        ["plan", "work-cli"],
+        ["approve", "work-cli"],
+        ["run", "work-cli", "--note", "external worker"],
+        ["validate", "work-cli"],
+        ["handoff", "work-cli"],
       ]) {
-        const result = await runMission(repo, args);
+        const result = await runWork(repo, args);
         expect(result.exitCode).toBe(0);
       }
 
-      const status = await runMission(repo, ["status", "mission-cli"]);
-      expect(status.stdout).toContain("mission-cli completed");
+      const status = await runWork(repo, ["status", "work-cli"]);
+      expect(status.stdout).toContain("work-cli completed");
 
-      const trace = await runMission(repo, ["trace", "mission-cli"]);
+      const trace = await runWork(repo, ["trace", "work-cli"]);
       expect(trace.stdout).toContain("validation.passed");
 
-      const inspect = await runMission(repo, ["inspect", "mission-cli", "events", "0"]);
-      expect(inspect.stdout).toContain('"type": "mission.created"');
+      const inspect = await runWork(repo, ["inspect", "work-cli", "events", "0"]);
+      expect(inspect.stdout).toContain('"type": "work.created"');
       expect(inspect.stdout).toContain('"record_id": "event-000001"');
 
-      const inspectById = await runMission(repo, [
-        "inspect",
-        "mission-cli",
-        "events",
-        "event-000001",
-      ]);
-      expect(inspectById.stdout).toContain('"type": "mission.created"');
+      const inspectById = await runWork(repo, ["inspect", "work-cli", "events", "event-000001"]);
+      expect(inspectById.stdout).toContain('"type": "work.created"');
 
-      const tasks = await runMission(repo, ["tasks", "mission-cli"]);
+      const tasks = await runWork(repo, ["tasks", "work-cli"]);
       expect(tasks.stdout).toContain("task-001 ready worker-agent");
     });
   });
 
   it("executes the shell runner and records run evidence", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, [
+      await runWork(repo, [
         "new",
-        "Shell runner mission",
+        "Shell runner work",
         "--id",
-        "mission-shell-runner",
+        "work-shell-runner",
         "--validation",
         `${bunBin} --version`,
       ]);
-      await runMission(repo, ["plan", "mission-shell-runner"]);
-      await runMission(repo, ["approve", "mission-shell-runner"]);
+      await runWork(repo, ["plan", "work-shell-runner"]);
+      await runWork(repo, ["approve", "work-shell-runner"]);
 
-      const result = await runMission(repo, [
+      const result = await runWork(repo, [
         "run",
-        "mission-shell-runner",
+        "work-shell-runner",
         "--backend",
         "shell",
         "--command",
@@ -89,25 +84,25 @@ describe("mission CLI", () => {
       expect(await readFile(join(repo, "runner-output.txt"), "utf8")).toBe("shell-runner");
 
       const runLog = await readFile(
-        join(repo, ".missions", "mission-shell-runner", "run.log"),
+        join(repo, ".supermission", "work-shell-runner", "run.log"),
         "utf8",
       );
       expect(runLog).toContain("Backend: shell");
       expect(runLog).toContain("shell-runner");
 
-      const status = await runMission(repo, ["status", "mission-shell-runner"]);
+      const status = await runWork(repo, ["status", "work-shell-runner"]);
       expect(status.stdout).toContain("needs_review");
 
-      await runMission(repo, ["validate", "mission-shell-runner"]);
-      await runMission(repo, ["handoff", "mission-shell-runner"]);
-      const completed = await runMission(repo, ["status", "mission-shell-runner"]);
+      await runWork(repo, ["validate", "work-shell-runner"]);
+      await runWork(repo, ["handoff", "work-shell-runner"]);
+      const completed = await runWork(repo, ["status", "work-shell-runner"]);
       expect(completed.stdout).toContain("completed");
     });
   }, 120000);
 
   it("lists runner backend metadata", async () => {
     await withTempRepo(async (repo) => {
-      const result = await runMission(repo, ["runner", "list"]);
+      const result = await runWork(repo, ["runner", "list"]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("record local");
       expect(result.stdout).toContain("shell local");
@@ -118,7 +113,7 @@ describe("mission CLI", () => {
 
   it("uses project runner config when run options are omitted", async () => {
     await withTempRepo(async (repo) => {
-      const init = await runMission(repo, [
+      const init = await runWork(repo, [
         "runner",
         "config",
         "init",
@@ -132,28 +127,28 @@ describe("mission CLI", () => {
       expect(init.exitCode).toBe(0);
       expect(init.stdout).toContain("default_backend: shell");
 
-      const show = await runMission(repo, ["runner", "config", "show"]);
+      const show = await runWork(repo, ["runner", "config", "show"]);
       expect(show.stdout).toContain("configured-runner");
 
-      await runMission(repo, ["new", "Configured runner mission", "--id", "mission-runner-config"]);
-      await runMission(repo, ["plan", "mission-runner-config"]);
-      await runMission(repo, ["approve", "mission-runner-config"]);
+      await runWork(repo, ["new", "Configured runner work", "--id", "work-runner-config"]);
+      await runWork(repo, ["plan", "work-runner-config"]);
+      await runWork(repo, ["approve", "work-runner-config"]);
 
-      const result = await runMission(repo, ["run", "mission-runner-config"]);
+      const result = await runWork(repo, ["run", "work-runner-config"]);
       expect(result.exitCode).toBe(0);
       expect(await readFile(join(repo, "runner-output.txt"), "utf8")).toBe("configured-runner");
 
       const runLog = await readFile(
-        join(repo, ".missions", "mission-runner-config", "run.log"),
+        join(repo, ".supermission", "work-runner-config", "run.log"),
         "utf8",
       );
       expect(runLog).toContain("Backend: shell");
     });
   });
 
-  it("runs a shell runner smoke test without creating a mission", async () => {
+  it("runs a shell runner smoke test without creating a work", async () => {
     await withTempRepo(async (repo) => {
-      const result = await runMission(repo, [
+      const result = await runWork(repo, [
         "runner",
         "smoke",
         "--backend",
@@ -169,7 +164,7 @@ describe("mission CLI", () => {
 
   it("retries runner smoke failures according to retry policy", async () => {
     await withTempRepo(async (repo) => {
-      const result = await runMission(repo, [
+      const result = await runWork(repo, [
         "runner",
         "smoke",
         "--backend",
@@ -195,13 +190,13 @@ describe("mission CLI", () => {
     "smokes the codex runner backend",
     async () => {
       await withTempRepo(async (repo) => {
-        await runMission(repo, ["new", "Codex runner mission", "--id", "mission-codex-runner"]);
-        await runMission(repo, ["plan", "mission-codex-runner"]);
-        await runMission(repo, ["approve", "mission-codex-runner"]);
+        await runWork(repo, ["new", "Codex runner work", "--id", "work-codex-runner"]);
+        await runWork(repo, ["plan", "work-codex-runner"]);
+        await runWork(repo, ["approve", "work-codex-runner"]);
 
         const args = [
           "run",
-          "mission-codex-runner",
+          "work-codex-runner",
           "--backend",
           "codex",
           "--prompt",
@@ -219,9 +214,9 @@ describe("mission CLI", () => {
           args.push("--model", process.env.SUPERMISSION_CODEX_MODEL);
         }
 
-        const result = await runMission(repo, args);
+        const result = await runWork(repo, args);
         const runLog = await readFile(
-          join(repo, ".missions", "mission-codex-runner", "run.log"),
+          join(repo, ".supermission", "work-codex-runner", "run.log"),
           "utf8",
         );
         expect(result.exitCode, `${result.stderr}\n${result.stdout}\n${runLog}`).toBe(0);
@@ -237,13 +232,13 @@ describe("mission CLI", () => {
     "smokes the claude runner backend",
     async () => {
       await withTempRepo(async (repo) => {
-        await runMission(repo, ["new", "Claude runner mission", "--id", "mission-claude-runner"]);
-        await runMission(repo, ["plan", "mission-claude-runner"]);
-        await runMission(repo, ["approve", "mission-claude-runner"]);
+        await runWork(repo, ["new", "Claude runner work", "--id", "work-claude-runner"]);
+        await runWork(repo, ["plan", "work-claude-runner"]);
+        await runWork(repo, ["approve", "work-claude-runner"]);
 
         const args = [
           "run",
-          "mission-claude-runner",
+          "work-claude-runner",
           "--backend",
           "claude",
           "--prompt",
@@ -255,9 +250,9 @@ describe("mission CLI", () => {
           args.push("--model", process.env.SUPERMISSION_CLAUDE_MODEL);
         }
 
-        const result = await runMission(repo, args);
+        const result = await runWork(repo, args);
         const runLog = await readFile(
-          join(repo, ".missions", "mission-claude-runner", "run.log"),
+          join(repo, ".supermission", "work-claude-runner", "run.log"),
           "utf8",
         );
         expect(result.exitCode, `${result.stderr}\n${result.stdout}\n${runLog}`).toBe(0);
@@ -270,22 +265,22 @@ describe("mission CLI", () => {
 
   it("returns a useful error for invalid inspect index", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Inspect failure", "--id", "mission-inspect"]);
-      const result = await runMission(repo, ["inspect", "mission-inspect", "events", "99"]);
+      await runWork(repo, ["new", "Inspect failure", "--id", "work-inspect"]);
+      const result = await runWork(repo, ["inspect", "work-inspect", "events", "99"]);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("index out of range");
     });
   });
 
-  it("rejects approving a draft mission before planning", async () => {
+  it("rejects approving a draft work before planning", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Gate order CLI", "--id", "mission-gate-cli"]);
+      await runWork(repo, ["new", "Gate order CLI", "--id", "work-gate-cli"]);
 
-      const result = await runMission(repo, ["approve", "mission-gate-cli"]);
+      const result = await runWork(repo, ["approve", "work-gate-cli"]);
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("approve_plan requires mission status planned");
+      expect(result.stderr).toContain("approve_plan requires work status planned");
 
-      const doctor = await runMission(repo, ["doctor", "mission-gate-cli"]);
+      const doctor = await runWork(repo, ["doctor", "work-gate-cli"]);
       expect(doctor.exitCode).toBe(1);
       expect(doctor.stdout).toContain("gate_waiting");
     });
@@ -293,12 +288,12 @@ describe("mission CLI", () => {
 
   it("supports controlled change proposal commands", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Change CLI", "--id", "mission-change-cli"]);
+      await runWork(repo, ["new", "Change CLI", "--id", "work-change-cli"]);
 
-      const proposed = await runMission(repo, [
+      const proposed = await runWork(repo, [
         "change",
         "propose",
-        "mission-change-cli",
+        "work-change-cli",
         "--reason",
         "Need a clearer acceptance criterion",
         "--type",
@@ -315,19 +310,19 @@ describe("mission CLI", () => {
       expect(proposed.exitCode).toBe(0);
       expect(proposed.stdout).toContain("change-001 proposed");
 
-      const status = await runMission(repo, ["status", "mission-change-cli"]);
+      const status = await runWork(repo, ["status", "work-change-cli"]);
       expect(status.stdout).toContain("needs_decision");
 
-      const list = await runMission(repo, ["change", "list", "mission-change-cli"]);
+      const list = await runWork(repo, ["change", "list", "work-change-cli"]);
       expect(list.stdout).toContain("change-001 proposed workflow low");
 
-      const show = await runMission(repo, ["change", "show", "mission-change-cli", "change-001"]);
+      const show = await runWork(repo, ["change", "show", "work-change-cli", "change-001"]);
       expect(show.stdout).toContain("recommendation: update_acceptance");
 
-      const approved = await runMission(repo, [
+      const approved = await runWork(repo, [
         "change",
         "approve",
-        "mission-change-cli",
+        "work-change-cli",
         "change-001",
         "--reason",
         "Acceptable.",
@@ -335,10 +330,10 @@ describe("mission CLI", () => {
       expect(approved.exitCode).toBe(0);
       expect(approved.stdout).toContain("change-001 approved");
 
-      const applied = await runMission(repo, [
+      const applied = await runWork(repo, [
         "change",
         "apply",
-        "mission-change-cli",
+        "work-change-cli",
         "change-001",
         "--acceptance",
         "Updated acceptance is recorded",
@@ -353,12 +348,7 @@ describe("mission CLI", () => {
       expect(applied.stdout).toContain("change-001 applied");
       expect(applied.stdout).toContain("plan +1");
 
-      const showApplied = await runMission(repo, [
-        "change",
-        "show",
-        "mission-change-cli",
-        "change-001",
-      ]);
+      const showApplied = await runWork(repo, ["change", "show", "work-change-cli", "change-001"]);
       expect(showApplied.stdout).toContain("status: applied");
       expect(showApplied.stdout).toContain("Updated acceptance is recorded");
     });
@@ -374,23 +364,23 @@ describe("mission CLI", () => {
         { cwd: repo },
       );
       await writeFile(join(repo, "app.txt"), "after\n", "utf8");
-      await runMission(repo, ["new", "Checkpoint CLI", "--id", "mission-checkpoint-cli"]);
+      await runWork(repo, ["new", "Checkpoint CLI", "--id", "work-checkpoint-cli"]);
 
-      const diff = await runMission(repo, ["diff", "mission-checkpoint-cli"]);
+      const diff = await runWork(repo, ["diff", "work-checkpoint-cli"]);
       expect(diff.exitCode).toBe(0);
       expect(diff.stdout).toContain("captured patch.diff");
 
-      const created = await runMission(repo, [
+      const created = await runWork(repo, [
         "checkpoint",
         "create",
-        "mission-checkpoint-cli",
+        "work-checkpoint-cli",
         "--label",
         "before review",
       ]);
       expect(created.exitCode).toBe(0);
       expect(created.stdout).toContain("checkpoint-001");
 
-      const list = await runMission(repo, ["checkpoint", "list", "mission-checkpoint-cli"]);
+      const list = await runWork(repo, ["checkpoint", "list", "work-checkpoint-cli"]);
       expect(list.stdout).toContain("before review");
     });
   });
@@ -407,11 +397,11 @@ describe("mission CLI", () => {
         ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "initial"],
         { cwd: repo },
       );
-      await runMission(repo, ["new", "Scoped Diff CLI", "--id", "mission-scoped-diff-cli"]);
-      await runMission(repo, [
+      await runWork(repo, ["new", "Scoped Diff CLI", "--id", "work-scoped-diff-cli"]);
+      await runWork(repo, [
         "task",
         "add",
-        "mission-scoped-diff-cli",
+        "work-scoped-diff-cli",
         "--title",
         "Source-only change",
         "--mutation-mode",
@@ -422,15 +412,10 @@ describe("mission CLI", () => {
       await writeFile(join(repo, "src", "app.ts"), "after\n", "utf8");
       await writeFile(join(repo, "docs", "notes.md"), "after\n", "utf8");
 
-      const diff = await runMission(repo, [
-        "diff",
-        "mission-scoped-diff-cli",
-        "--task",
-        "task-002",
-      ]);
+      const diff = await runWork(repo, ["diff", "work-scoped-diff-cli", "--task", "task-002"]);
       expect(diff.exitCode).toBe(0);
 
-      const doctor = await runMission(repo, ["doctor", "mission-scoped-diff-cli"]);
+      const doctor = await runWork(repo, ["doctor", "work-scoped-diff-cli"]);
       expect(doctor.stdout).toContain("scope_drift");
     });
   });
@@ -444,45 +429,45 @@ describe("mission CLI", () => {
         ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "initial"],
         { cwd: repo },
       );
-      const worktreePath = join(repo, "..", "mission-cli-worktree");
+      const worktreePath = join(repo, "..", "work-cli-worktree");
 
       try {
-        await runMission(repo, ["new", "Isolation CLI", "--id", "mission-isolation-cli"]);
-        const branch = await runMission(repo, [
+        await runWork(repo, ["new", "Isolation CLI", "--id", "work-isolation-cli"]);
+        const branch = await runWork(repo, [
           "branch",
           "create",
-          "mission-isolation-cli",
+          "work-isolation-cli",
           "--name",
-          "mission/cli-branch",
+          "work/cli-branch",
         ]);
         expect(branch.exitCode).toBe(0);
-        expect(branch.stdout).toContain("mission/cli-branch");
+        expect(branch.stdout).toContain("work/cli-branch");
 
-        const worktree = await runMission(repo, [
+        const worktree = await runWork(repo, [
           "worktree",
           "create",
-          "mission-isolation-cli",
+          "work-isolation-cli",
           "--path",
           worktreePath,
           "--branch",
-          "mission/cli-worktree",
+          "work/cli-worktree",
         ]);
         expect(worktree.exitCode).toBe(0);
         expect(worktree.stdout).toContain(worktreePath);
 
-        const rollback = await runMission(repo, ["rollback-plan", "mission-isolation-cli"]);
+        const rollback = await runWork(repo, ["rollback-plan", "work-isolation-cli"]);
         expect(rollback.exitCode).toBe(0);
         expect(rollback.stdout).toContain("rollback-plan.md written");
 
         await writeFile(join(repo, "app.txt"), "after\n", "utf8");
-        await runMission(repo, [
+        await runWork(repo, [
           "checkpoint",
           "create",
-          "mission-isolation-cli",
+          "work-isolation-cli",
           "--label",
           "before rollback check",
         ]);
-        const rollbackCheck = await runMission(repo, ["rollback-check", "mission-isolation-cli"]);
+        const rollbackCheck = await runWork(repo, ["rollback-check", "work-isolation-cli"]);
         expect(rollbackCheck.exitCode).toBe(0);
         expect(rollbackCheck.stdout).toContain("Rollback check passed");
       } finally {
@@ -492,14 +477,14 @@ describe("mission CLI", () => {
     });
   });
 
-  it("supports mission doctor with blocking exit code", async () => {
+  it("supports work doctor with blocking exit code", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Doctor CLI", "--id", "mission-doctor-cli"]);
-      const result = await runMission(repo, ["doctor", "mission-doctor-cli"]);
+      await runWork(repo, ["new", "Doctor CLI", "--id", "work-doctor-cli"]);
+      const result = await runWork(repo, ["doctor", "work-doctor-cli"]);
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain("BLOCKING validation_missing");
 
-      const json = await runMission(repo, ["doctor", "mission-doctor-cli", "--json"]);
+      const json = await runWork(repo, ["doctor", "work-doctor-cli", "--json"]);
       expect(json.exitCode).toBe(1);
       expect(json.stdout).toContain('"code": "validation_missing"');
     });
@@ -507,7 +492,7 @@ describe("mission CLI", () => {
 
   it("supports project policy init and show commands", async () => {
     await withTempRepo(async (repo) => {
-      const init = await runMission(repo, [
+      const init = await runWork(repo, [
         "policy",
         "init",
         "--validation-allow",
@@ -519,63 +504,59 @@ describe("mission CLI", () => {
       expect(init.stdout).toContain("validation_allowlist");
       expect(init.stdout).toContain("redaction");
 
-      const show = await runMission(repo, ["policy", "show"]);
+      const show = await runWork(repo, ["policy", "show"]);
       expect(show.stdout).toContain(`${bunBin} *`);
       expect(show.stdout).toContain("session-id=[A-Za-z0-9]+");
 
-      await runMission(repo, [
+      await runWork(repo, [
         "new",
         "Policy CLI",
         "--id",
-        "mission-policy-cli",
+        "work-policy-cli",
         "--validation",
         `${bunBin} --version`,
       ]);
-      const validation = await runMission(repo, ["validate", "mission-policy-cli"]);
+      const validation = await runWork(repo, ["validate", "work-policy-cli"]);
       expect(validation.exitCode).toBe(0);
     });
   });
 
   it("blocks risky validation commands from the CLI", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, [
+      await runWork(repo, [
         "new",
         "Risky CLI",
         "--id",
-        "mission-risky-cli",
+        "work-risky-cli",
         "--validation",
         "rm -rf ./definitely-risky",
       ]);
-      const result = await runMission(repo, ["validate", "mission-risky-cli"]);
+      const result = await runWork(repo, ["validate", "work-risky-cli"]);
       expect(result.exitCode).toBe(3);
 
-      const doctor = await runMission(repo, ["doctor", "mission-risky-cli"]);
+      const doctor = await runWork(repo, ["doctor", "work-risky-cli"]);
       expect(doctor.exitCode).toBe(1);
-      expect(doctor.stdout).toContain("mission_blocked");
+      expect(doctor.stdout).toContain("work_blocked");
     });
   });
 
   it("requires an approval gate before --allow-risky executes from the CLI", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, [
+      await runWork(repo, [
         "new",
         "Risky Gate CLI",
         "--id",
-        "mission-risky-gate-cli",
+        "work-risky-gate-cli",
         "--validation",
         "rm -rf ./definitely-risky",
       ]);
 
-      const missingGate = await runMission(repo, [
-        "validate",
-        "mission-risky-gate-cli",
-        "--allow-risky",
-      ]);
+      const missingGate = await runWork(repo, ["validate", "work-risky-gate-cli", "--allow-risky"]);
       expect(missingGate.exitCode).toBe(3);
 
-      const approved = await runMission(repo, [
+      const approved = await runWork(repo, [
         "approve",
-        "mission-risky-gate-cli",
+        "work-risky-gate-cli",
         "--gate",
         "approve_risky_command",
         "--reason",
@@ -583,65 +564,61 @@ describe("mission CLI", () => {
       ]);
       expect(approved.exitCode).toBe(0);
 
-      const allowed = await runMission(repo, [
-        "validate",
-        "mission-risky-gate-cli",
-        "--allow-risky",
-      ]);
+      const allowed = await runWork(repo, ["validate", "work-risky-gate-cli", "--allow-risky"]);
       expect(allowed.exitCode).toBe(0);
     });
   });
 
   it("supports review artifact creation", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, [
+      await runWork(repo, [
         "new",
         "Review CLI",
         "--id",
-        "mission-review-cli",
+        "work-review-cli",
         "--validation",
         `${bunBin} --version`,
       ]);
-      await runMission(repo, ["validate", "mission-review-cli"]);
+      await runWork(repo, ["validate", "work-review-cli"]);
 
-      const review = await runMission(repo, ["review", "create", "mission-review-cli"]);
+      const review = await runWork(repo, ["review", "create", "work-review-cli"]);
       expect(review.exitCode).toBe(0);
       expect(review.stdout).toContain("review.md written");
     });
   });
 
-  it("supports compact mission summary", async () => {
+  it("supports compact work summary", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, [
+      await runWork(repo, [
         "new",
         "Summary CLI",
         "--id",
-        "mission-summary-cli",
+        "work-summary-cli",
         "--validation",
         `${bunBin} --version`,
       ]);
-      const summary = await runMission(repo, ["summary", "mission-summary-cli"]);
+      const summary = await runWork(repo, ["summary", "work-summary-cli"]);
       expect(summary.exitCode).toBe(0);
-      expect(summary.stdout).toContain("mission-summary-cli draft");
+      expect(summary.stdout).toContain("work-summary-cli draft");
       expect(summary.stdout).toContain("Artifacts:");
     });
   });
 
-  it("supports mission monitor reports and supervisor inspection", async () => {
+  it("supports work monitor reports and supervisor inspection", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Monitor CLI", "--id", "mission-monitor-cli"]);
-      await runMission(repo, ["validate", "mission-monitor-cli"]);
+      await runWork(repo, ["new", "Monitor CLI", "--id", "work-monitor-cli"]);
+      await runWork(repo, ["validate", "work-monitor-cli"]);
 
-      const monitor = await runMission(repo, ["monitor", "mission-monitor-cli"]);
+      const monitor = await runWork(repo, ["monitor", "work-monitor-cli"]);
       expect(monitor.exitCode).toBe(0);
-      expect(monitor.stdout).toContain("Mission: mission-monitor-cli");
+      expect(monitor.stdout).toContain("Work: work-monitor-cli");
       expect(monitor.stdout).toContain("## Next Actions");
 
-      const json = await runMission(repo, ["monitor", "mission-monitor-cli", "--json"]);
+      const json = await runWork(repo, ["monitor", "work-monitor-cli", "--json"]);
       expect(json.exitCode).toBe(0);
       expect(json.stdout).toContain('"recent_signals"');
 
-      const signal = await runMission(repo, ["inspect", "mission-monitor-cli", "supervisor", "0"]);
+      const signal = await runWork(repo, ["inspect", "work-monitor-cli", "supervisor", "0"]);
       expect(signal.exitCode).toBe(0);
       expect(signal.stdout).toContain('"type": "validation_missing"');
     });
@@ -649,11 +626,11 @@ describe("mission CLI", () => {
 
   it("supports task ledger commands", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Task CLI", "--id", "mission-task-cli"]);
-      const added = await runMission(repo, [
+      await runWork(repo, ["new", "Task CLI", "--id", "work-task-cli"]);
+      const added = await runWork(repo, [
         "task",
         "add",
-        "mission-task-cli",
+        "work-task-cli",
         "--title",
         "Write test plan",
         "--actor-role",
@@ -661,15 +638,15 @@ describe("mission CLI", () => {
         "--mutation-mode",
         "sidecar_artifact",
         "--scope-allow",
-        ".missions/**",
+        ".supermission/**",
       ]);
       expect(added.exitCode).toBe(0);
       expect(added.stdout).toContain("task-002 ready sidecar_artifact");
 
-      const status = await runMission(repo, [
+      const status = await runWork(repo, [
         "task",
         "set-status",
-        "mission-task-cli",
+        "work-task-cli",
         "task-002",
         "--status",
         "done",
@@ -681,20 +658,20 @@ describe("mission CLI", () => {
 
   it("enforces one running linear write task while allowing sidecar running tasks", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Linear lock CLI", "--id", "mission-linear-cli"]);
-      await runMission(repo, [
+      await runWork(repo, ["new", "Linear lock CLI", "--id", "work-linear-cli"]);
+      await runWork(repo, [
         "task",
         "add",
-        "mission-linear-cli",
+        "work-linear-cli",
         "--title",
         "Second write",
         "--mutation-mode",
         "linear_write",
       ]);
-      await runMission(repo, [
+      await runWork(repo, [
         "task",
         "add",
-        "mission-linear-cli",
+        "work-linear-cli",
         "--title",
         "Sidecar review",
         "--actor-role",
@@ -705,10 +682,10 @@ describe("mission CLI", () => {
 
       expect(
         (
-          await runMission(repo, [
+          await runWork(repo, [
             "task",
             "set-status",
-            "mission-linear-cli",
+            "work-linear-cli",
             "task-001",
             "--status",
             "running",
@@ -716,10 +693,10 @@ describe("mission CLI", () => {
         ).exitCode,
       ).toBe(0);
 
-      const blocked = await runMission(repo, [
+      const blocked = await runWork(repo, [
         "task",
         "set-status",
-        "mission-linear-cli",
+        "work-linear-cli",
         "task-002",
         "--status",
         "running",
@@ -727,10 +704,10 @@ describe("mission CLI", () => {
       expect(blocked.exitCode).toBe(1);
       expect(blocked.stderr).toContain("linear_write task task-001 is already running");
 
-      const sidecar = await runMission(repo, [
+      const sidecar = await runWork(repo, [
         "task",
         "set-status",
-        "mission-linear-cli",
+        "work-linear-cli",
         "task-003",
         "--status",
         "running",
@@ -742,11 +719,11 @@ describe("mission CLI", () => {
 
   it("supports task scope audit from the CLI", async () => {
     await withTempRepo(async (repo) => {
-      await runMission(repo, ["new", "Scope CLI", "--id", "mission-scope-cli"]);
-      await runMission(repo, [
+      await runWork(repo, ["new", "Scope CLI", "--id", "work-scope-cli"]);
+      await runWork(repo, [
         "task",
         "add",
-        "mission-scope-cli",
+        "work-scope-cli",
         "--title",
         "Source-only change",
         "--mutation-mode",
@@ -757,17 +734,12 @@ describe("mission CLI", () => {
       await mkdir(join(repo, "docs"), { recursive: true });
       await writeFile(join(repo, "docs", "notes.md"), "outside\n", "utf8");
 
-      const audit = await runMission(repo, [
-        "task",
-        "audit-scope",
-        "mission-scope-cli",
-        "task-002",
-      ]);
+      const audit = await runWork(repo, ["task", "audit-scope", "work-scope-cli", "task-002"]);
       expect(audit.exitCode).toBe(0);
       expect(audit.stdout).toContain("1 violation");
       expect(audit.stdout).toContain("docs/notes.md");
 
-      const doctor = await runMission(repo, ["doctor", "mission-scope-cli"]);
+      const doctor = await runWork(repo, ["doctor", "work-scope-cli"]);
       expect(doctor.stdout).toContain("scope_drift");
     });
   });

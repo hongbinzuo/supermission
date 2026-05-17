@@ -1,6 +1,6 @@
 *
 !bin/
-!bin/mission
+!bin/supermission
 !dist/
 !dist/**
 !docs/
@@ -11,6 +11,7 @@
 !docs/research/
 !docs/research/agent-orchestration-reference.md
 !docs/research/agent-scheduling-communication-ui-performance.md
+!docs/research/kiro-codex-claude-orchestration-gap-analysis.md
 !docs/research/token-performance-strategy.md
 !evals/
 !evals/supermission-capability-baseline.yaml
@@ -18,4 +19,3 @@
 !README.zh-CN.md
 !LICENSE
 !package.json
-

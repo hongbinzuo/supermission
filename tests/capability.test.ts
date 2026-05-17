@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
 import { readJsonl } from "../src/jsonl.js";
-import { bunBin, runMission, withTempRepo } from "./helpers.js";
+import { bunBin, runWork, withTempRepo } from "./helpers.js";
 
 type CapabilityFixture = {
   id: string;
@@ -22,19 +22,19 @@ type CapabilityFixture = {
 };
 
 describe("Supermission capability baseline", () => {
-  it("completes the local mission workflow with evidence and budgets", async () => {
+  it("completes the local work workflow with evidence and budgets", async () => {
     const fixture = YAML.parse(
       await readFile(join(process.cwd(), "evals", "supermission-capability-baseline.yaml"), "utf8"),
     ) as CapabilityFixture;
 
     await withTempRepo(async (repo) => {
-      const missionId = "capability-baseline";
+      const workId = "capability-baseline";
       const started = performance.now();
       const newArgs = [
         "new",
         fixture.goal,
         "--id",
-        missionId,
+        workId,
         "--validation",
         fixture.validation_commands[0]?.replace(/^bun\b/, bunBin) ?? `${bunBin} --version`,
       ];
@@ -43,61 +43,61 @@ describe("Supermission capability baseline", () => {
       }
 
       await expectExitZero(repo, newArgs);
-      await expectExitZero(repo, ["plan", missionId, "--note", "Capability baseline plan"]);
-      await expectExitZero(repo, ["requirements", "check", missionId]);
-      await expectExitZero(repo, ["approve", missionId, "--reason", "Baseline plan approved"]);
+      await expectExitZero(repo, ["plan", workId, "--note", "Capability baseline plan"]);
+      await expectExitZero(repo, ["requirements", "check", workId]);
+      await expectExitZero(repo, ["approve", workId, "--reason", "Baseline plan approved"]);
       await expectExitZero(repo, [
         "run",
-        missionId,
+        workId,
         "--backend",
         fixture.runner.backend,
         "--command",
         fixture.runner.command,
       ]);
-      await expectExitZero(repo, ["validate", missionId]);
-      await expectExitZero(repo, ["review", "create", missionId]);
-      await expectExitZero(repo, ["handoff", missionId]);
+      await expectExitZero(repo, ["validate", workId]);
+      await expectExitZero(repo, ["review", "create", workId]);
+      await expectExitZero(repo, ["handoff", workId]);
 
       const durationMs = performance.now() - started;
       expect(durationMs).toBeLessThan(fixture.budgets.max_duration_ms);
 
-      const status = await runMission(repo, ["status", missionId]);
-      expect(status.stdout).toContain(`${missionId} completed`);
+      const status = await runWork(repo, ["status", workId]);
+      expect(status.stdout).toContain(`${workId} completed`);
 
-      const summary = await runMission(repo, ["summary", missionId]);
+      const summary = await runWork(repo, ["summary", workId]);
       expect(summary.stdout).toContain("Validation commands: 1");
       expect(summary.stdout).toContain("Tasks: 1");
 
-      const trace = await runMission(repo, ["trace", missionId]);
-      expect(trace.stdout).toContain("mission.created");
+      const trace = await runWork(repo, ["trace", workId]);
+      expect(trace.stdout).toContain("work.created");
       expect(trace.stdout).toContain("requirements.analysis.created");
       expect(trace.stdout).toContain("runner.executed");
       expect(trace.stdout).toContain("validation.passed");
 
-      const missionRoot = join(repo, ".missions", missionId);
+      const workRoot = join(repo, ".supermission", workId);
       for (const artifact of fixture.required_artifacts) {
-        await expect(readFile(join(missionRoot, artifact), "utf8")).resolves.toBeDefined();
+        await expect(readFile(join(workRoot, artifact), "utf8")).resolves.toBeDefined();
       }
 
-      const runLog = await readFile(join(missionRoot, "run.log"), "utf8");
+      const runLog = await readFile(join(workRoot, "run.log"), "utf8");
       expect(runLog).toContain("Backend: shell");
       expect(runLog).toContain("capability-ok");
 
-      const review = await readFile(join(missionRoot, "review.md"), "utf8");
+      const review = await readFile(join(workRoot, "review.md"), "utf8");
       expect(review).toContain("Review");
 
       const requirementsAnalysis = await readFile(
-        join(missionRoot, "requirements-analysis.md"),
+        join(workRoot, "requirements-analysis.md"),
         "utf8",
       );
       expect(requirementsAnalysis).toContain("Requirements Analysis");
 
-      const handoff = await readFile(join(missionRoot, "handoff.md"), "utf8");
-      expect(handoff).toContain("Mission: capability-baseline");
+      const handoff = await readFile(join(workRoot, "handoff.md"), "utf8");
+      expect(handoff).toContain("Work: capability-baseline");
       expect(handoff).toContain("Evidence");
 
       const toolCalls = await readJsonl<Record<string, unknown>>(
-        join(missionRoot, "tool-calls.jsonl"),
+        join(workRoot, "tool-calls.jsonl"),
       );
       expect(toolCalls).toContainEqual(
         expect.objectContaining({
@@ -109,9 +109,7 @@ describe("Supermission capability baseline", () => {
         }),
       );
 
-      const telemetry = await readJsonl<Record<string, unknown>>(
-        join(missionRoot, "telemetry.jsonl"),
-      );
+      const telemetry = await readJsonl<Record<string, unknown>>(join(workRoot, "telemetry.jsonl"));
       expect(telemetry).toContainEqual(
         expect.objectContaining({
           metric: "runner.executed",
@@ -143,7 +141,7 @@ describe("Supermission capability baseline", () => {
         "The UI should be fast and intuitive",
       ]);
 
-      const result = await runMission(repo, [
+      const result = await runWork(repo, [
         "requirements",
         "check",
         "requirements-analysis",
@@ -153,15 +151,15 @@ describe("Supermission capability baseline", () => {
       expect(result.stdout).toContain("requirements requirements-analysis");
       expect(result.stdout).toContain("blocking");
 
-      const missionRoot = join(repo, ".missions", "requirements-analysis");
-      const report = await readFile(join(missionRoot, "requirements-analysis.md"), "utf8");
+      const workRoot = join(repo, ".supermission", "requirements-analysis");
+      const report = await readFile(join(workRoot, "requirements-analysis.md"), "utf8");
       expect(report).toContain("Requirements Analysis");
       expect(report).toContain("inconsistency");
       expect(report).toContain("ambiguity");
       expect(report).toContain("Option A");
       expect(report).toContain("Option B");
 
-      const events = await readJsonl<Record<string, unknown>>(join(missionRoot, "events.jsonl"));
+      const events = await readJsonl<Record<string, unknown>>(join(workRoot, "events.jsonl"));
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "requirements.analysis.created",
@@ -169,9 +167,7 @@ describe("Supermission capability baseline", () => {
         }),
       );
 
-      const telemetry = await readJsonl<Record<string, unknown>>(
-        join(missionRoot, "telemetry.jsonl"),
-      );
+      const telemetry = await readJsonl<Record<string, unknown>>(join(workRoot, "telemetry.jsonl"));
       expect(telemetry).toContainEqual(
         expect.objectContaining({
           metric: "requirements.analysis",
@@ -180,7 +176,7 @@ describe("Supermission capability baseline", () => {
       );
 
       const signals = await readJsonl<Record<string, unknown>>(
-        join(missionRoot, "supervisor-signals.jsonl"),
+        join(workRoot, "supervisor-signals.jsonl"),
       );
       expect(signals).toContainEqual(
         expect.objectContaining({
@@ -193,7 +189,7 @@ describe("Supermission capability baseline", () => {
 });
 
 async function expectExitZero(repo: string, args: string[]) {
-  const result = await runMission(repo, args);
+  const result = await runWork(repo, args);
   expect(result.exitCode, `${args.join(" ")}\n${result.stderr}\n${result.stdout}`).toBe(0);
   return result;
 }

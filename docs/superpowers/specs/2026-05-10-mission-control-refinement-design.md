@@ -78,17 +78,17 @@ Mission Control 的机会是把这些问题产品化，而不是继续堆叠更�
 
 ## 5. 核心解法映射
 
-| 问题         | 解法                                                       |
-| ------------ | ---------------------------------------------------------- |
-| 不确定性高   | Mission Spec、acceptance criteria、scope allow/deny        |
-| 难追溯       | append-only events、decisions、artifacts                   |
-| 难管理       | state machine、milestones、human gates                     |
-| 难可视化     | Terminal TUI、mission board、dashboard from records        |
-| 难回退       | git branch/worktree、patch snapshots、validation logs      |
-| 难交接       | handoff.md、structured actor/event history                 |
-| 难复用       | skills、workflow templates                                 |
-| 难监控和调试 | mission trace、tool call log、telemetry、debug artifacts   |
-| 难并行       | sub-missions、task ledger、worktree isolation、merge queue |
+| 问题         | 解法                                                          |
+| ------------ | ------------------------------------------------------------- |
+| 不确定性高   | Mission Spec、acceptance criteria、scope allow/deny           |
+| 难追溯       | append-only events、decisions、artifacts                      |
+| 难管理       | state machine、milestones、human gates                        |
+| 难可视化     | Terminal TUI、mission board、dashboard from records           |
+| 难回退       | git branch/worktree、patch snapshots、validation logs         |
+| 难交接       | handoff.md、structured actor/event history                    |
+| 难复用       | skills、workflow templates                                    |
+| 难监控和调试 | supermission trace、tool call log、telemetry、debug artifacts |
+| 难并行       | sub-missions、task ledger、worktree isolation、merge queue    |
 
 早期产品的重点不是做复杂协作系统，而是先把 mission record 的结构设计对。
 
@@ -121,7 +121,7 @@ V0/V1 默认本地执行，降低信任成本、实现复杂度和集成成本�
 
 ### 7.4 Git-backed records
 
-V0/V1 的 source of truth 是 repo 内的 `.missions/` 文件，而不是数据库。
+V0/V1 的 source of truth 是 repo 内的 `.supermission/` 文件，而不是数据库。
 
 Git 已经提供历史、回滚、分支、diff、协作和审计能力。数据库可以后续作为索引层引入，但不应成为早期核心依赖。
 
@@ -197,7 +197,7 @@ Artifact 是 mission 的可审计产物。
 
 典型 artifact：
 
-- mission.yaml
+- work.yaml
 - plan.md
 - decisions.md
 - events.jsonl
@@ -246,9 +246,9 @@ V0/V1 应使用 Git 管理的文件作为 mission record。
 建议结构：
 
 ```text
-.missions/
+.supermission/
   mission-001/
-    mission.yaml
+    work.yaml
     events.jsonl
     decisions.md
     plan.md
@@ -266,7 +266,7 @@ V0/V1 应使用 Git 管理的文件作为 mission record。
 
 其中：
 
-- `mission.yaml` 是当前 mission spec 和状态的主文件。
+- `work.yaml` 是当前 mission spec 和状态的主文件。
 - `events.jsonl` 是 append-only event log。
 - `decisions.md` 记录关键判断和取舍。
 - `plan.md` 是执行计划。
@@ -312,24 +312,24 @@ V0/V1 应使用 Git 管理的文件作为 mission record。
 V0 的目标是证明一个任务可以被 mission 化，并稳定走完整个闭环：
 
 ```text
-idea -> mission.yaml -> plan.md -> approve -> worktree -> implement -> validate -> diff -> handoff.md
+idea -> work.yaml -> plan.md -> approve -> worktree -> implement -> validate -> diff -> handoff.md
 ```
 
 V0 命令：
 
 ```text
-mission new
-mission plan
-mission approve
-mission run
-mission validate
-mission status
-mission doctor
-mission monitor
-mission trace
-mission logs
-mission debug
-mission handoff
+supermission new
+supermission plan
+supermission approve
+supermission run
+supermission validate
+supermission status
+supermission doctor
+supermission monitor
+supermission trace
+supermission logs
+supermission debug
+supermission handoff
 ```
 
 V0 状态机：
@@ -348,7 +348,7 @@ paused
 
 V0 验收标准：
 
-- 能从自然语言目标生成 `mission.yaml`。
+- 能从自然语言目标生成 `work.yaml`。
 - 能生成可审核的 `plan.md`。
 - 必须人工 approve 后才能改代码。
 - 能创建隔离 branch 或 worktree。
@@ -377,7 +377,7 @@ mission tui
 
 TUI 主要能力：
 
-- 查看 mission status。
+- 查看 supermission status。
 - 查看 plan。
 - 批准或拒绝 gate。
 - 查看 validation result。
@@ -413,7 +413,7 @@ V1 优先探索 Zed 和 Neovim，但不把它们当作大众市场入口。
 V1 adapter 不追求复杂 UI，只做轻集成：
 
 - 创建 mission。
-- 查看 mission status。
+- 查看 supermission status。
 - 打开 plan。
 - 执行 approve。
 - 触发 validation。
@@ -458,7 +458,7 @@ Local Mission Engine
         +-- Artifact Store
         |
         v
-.missions/
+.supermission/
         |
         v
 Repo / Tests / Git / PR
@@ -468,7 +468,7 @@ Repo / Tests / Git / PR
 
 - engine 负责 mission logic。
 - adapters 负责 interaction。
-- `.missions/` 是 source of truth。
+- `.supermission/` 是 source of truth。
 - Git 负责历史、分支、diff 和回退。
 - database 只在后续作为索引层出现。
 
@@ -509,7 +509,7 @@ Mission 级监控回答：
 
 V0/V1 至少记录：
 
-- mission status
+- supermission status
 - current actor
 - current workflow step
 - pending gate
@@ -525,7 +525,7 @@ V0/V1 至少记录：
 落盘位置：
 
 ```text
-.missions/mission-001/
+.supermission/mission-001/
   events.jsonl
   telemetry.jsonl
   monitor.md
@@ -563,7 +563,7 @@ agent 为什么这么做，哪里错了？
 落盘位置：
 
 ```text
-.missions/mission-001/
+.supermission/mission-001/
   tool-calls.jsonl
   debug.md
   validation.log
@@ -580,20 +580,20 @@ agent run -> context used -> tool calls -> file changes -> validation -> decisio
 V0/V1 命令：
 
 ```text
-mission monitor
-mission trace
-mission logs
-mission debug
-mission inspect
+supermission monitor
+supermission trace
+supermission logs
+supermission debug
+supermission inspect
 ```
 
 含义：
 
-- `mission monitor`：展示当前健康度、active tasks、pending changes、supervisor signals 和下一步。
-- `mission trace`：按时间线展示关键事件。
-- `mission logs`：展示 validation 和 tool call log。
-- `mission debug`：生成或打开失败分析。
-- `mission inspect`：查看某个 event、tool call、change 或 validation failure。
+- `supermission monitor`：展示当前健康度、active tasks、pending changes、supervisor signals 和下一步。
+- `supermission trace`：按时间线展示关键事件。
+- `supermission logs`：展示 validation 和 tool call log。
+- `supermission debug`：生成或打开失败分析。
+- `supermission inspect`：查看某个 event、tool call、change 或 validation failure。
 
 V0/V0.1 已实现这些基础命令；后续重点是把同一数据结构接入 TUI 和 runner adapter。
 
@@ -614,7 +614,7 @@ Overview | Timeline | Plan | Diff | Validation | Tool Calls | Debug | Handoff
 前端体验不能只验收“功能能用”，还必须审核：
 
 - 信息层级是否清楚。
-- mission status、pending gate、validation、diff、handoff 是否能快速扫读。
+- supermission status、pending gate、validation、diff、handoff 是否能快速扫读。
 - 长任务和多 agent 状态是否可理解。
 - loading、empty、failed、blocked、needs_decision 等状态是否完整。
 - 是否有足够密度，但不拥挤。
@@ -753,15 +753,15 @@ Ruflo 的关键启发：
 
 对 Mission Control 的转化：
 
-| Ruflo 能力        | Mission Control 借鉴                    |
-| ----------------- | --------------------------------------- |
-| Claude Code 集成  | Claude Code / Codex 作为 runner         |
-| Agent definitions | 少量内置 actor roles                    |
-| Slash commands    | `mission new/plan/run/validate/handoff` |
-| Hooks             | mission event hooks                     |
-| Memory/RAG        | 先从 `.missions/` 历史检索开始          |
-| Swarm             | V1 只做小规模可调试 workflow            |
-| Plugins           | 先做 workflow modules                   |
+| Ruflo 能力        | Mission Control 借鉴                         |
+| ----------------- | -------------------------------------------- |
+| Claude Code 集成  | Claude Code / Codex 作为 runner              |
+| Agent definitions | 少量内置 actor roles                         |
+| Slash commands    | `supermission new/plan/run/validate/handoff` |
+| Hooks             | mission event hooks                          |
+| Memory/RAG        | 先从 `.supermission/` 历史检索开始           |
+| Swarm             | V1 只做小规模可调试 workflow                 |
+| Plugins           | 先做 workflow modules                        |
 
 核心判断：
 
@@ -808,7 +808,7 @@ planner -> worker -> validator -> reviewer -> handoff
 worker-code + worker-tests -> validator -> reviewer
 ```
 
-这个可选并行不进入 V1 默认路径，只作为后续实验。V0/V1 可以先把这些角色写入 `mission.yaml` 和 `events.jsonl`，但实际执行仍由一个 CLI process 或外部 agent 按线性 workflow 完成。
+这个可选并行不进入 V1 默认路径，只作为后续实验。V0/V1 可以先把这些角色写入 `work.yaml` 和 `events.jsonl`，但实际执行仍由一个 CLI process 或外部 agent 按线性 workflow 完成。
 
 ### 17.4 Task Granularity
 
@@ -827,7 +827,7 @@ worker-code + worker-tests -> validator -> reviewer
 V1 可以使用：
 
 ```text
-.missions/mission-001/tasks/task-001.yaml
+.supermission/mission-001/tasks/task-001.yaml
 ```
 
 V0 可以先生成 `tasks/` 目录和默认 task ledger，但不做复杂调度。
@@ -888,7 +888,7 @@ V0/V1 的 memory 不应先做黑盒向量库。
 
 优先使用 repo-native artifacts：
 
-- previous `mission.yaml`
+- previous `work.yaml`
 - `decisions.md`
 - `events.jsonl`
 - `validation.log`
@@ -984,7 +984,7 @@ running -> needs_decision
 变更提案应落盘为结构化文件：
 
 ```text
-.missions/mission-001/changes/change-003.yaml
+.supermission/mission-001/changes/change-003.yaml
 ```
 
 示例：
@@ -1043,12 +1043,12 @@ created_at: "2026-05-11T00:00:00Z"
 给人和脚本使用：
 
 ```text
-mission change propose
-mission change list
-mission change show change-003
-mission change approve change-003
-mission change reject change-003
-mission change split change-003
+supermission change propose
+supermission change list
+supermission change show change-003
+supermission change approve change-003
+supermission change reject change-003
+supermission change split change-003
 ```
 
 也可以支持简写：
@@ -1121,7 +1121,7 @@ validation.failed -> change.suggested -> needs_decision
 
 ### 19.6 Handoff / Resume 入口
 
-换 agent 或隔天恢复时，新 agent 可以先做 mission review。如果发现上下文缺口，也可以提出 change proposal。
+换 agent 或隔天恢复时，新 agent 可以先做 supermission review。如果发现上下文缺口，也可以提出 change proposal。
 
 这让“接手时发现需求不清楚”变成正式流程，而不是重新开一段混乱聊天。
 
@@ -1136,8 +1136,8 @@ validation.failed -> change.suggested -> needs_decision
 每个 mission 都应至少包含：
 
 ```text
-.missions/mission-001/
-  mission.yaml
+.supermission/mission-001/
+  work.yaml
   events.jsonl
   decisions.md
   changes/
@@ -1172,7 +1172,7 @@ mission timeline
 用户查看某个变更：
 
 ```text
-mission change show change-003
+supermission change show change-003
 ```
 
 它应显示：
@@ -1182,7 +1182,7 @@ Why:
   原 scope 没覆盖 tests/auth/**，但验收要求新增登录失败测试。
 
 Changed:
-  mission.yaml: scope.allow 增加 tests/auth/**
+  work.yaml: scope.allow 增加 tests/auth/**
   plan.md: 增加测试步骤
   acceptance: 增加账号枚举保护验证
 
@@ -1299,7 +1299,7 @@ forward:
 rollback:
   command: pnpm db:rollback 20260511_add_missions_table
 backup:
-  command: pg_dump --schema-only --file .missions/mission-001/backups/schema-before.sql
+  command: pg_dump --schema-only --file .supermission/mission-001/backups/schema-before.sql
 risk:
   data_loss: false
   destructive: false
@@ -1673,7 +1673,7 @@ gates:
 
 Mission Control 真正发挥团队能力的地方不是多人在线聊天，而是：
 
-1. 让所有人看到同一份工程事实：`mission.yaml`、`events.jsonl`、`decisions.md`、`changes/`、`validation.log`、`handoff.md`。
+1. 让所有人看到同一份工程事实：`work.yaml`、`events.jsonl`、`decisions.md`、`changes/`、`validation.log`、`handoff.md`。
 2. 让关键判断被结构化记录：谁批准了什么，为什么批准，有什么风险。
 3. 让 reviewer 不再从零读上下文：reviewer 直接看 mission summary、change reason、diff、validation、rollback plan。
 4. 让换人和换 agent 成本变低：handoff 是标准产物，不是临时总结。
@@ -1721,7 +1721,7 @@ Mission Control 不应该靠“更会写代码”竞争，而应该定义一个�
 
 这些工具降低了本地 AI coding 的使用门槛，并支持真实代码修改和命令执行。
 
-但它们通常围绕会话、任务或 IDE 操作展开，不把 `mission.yaml`、`events.jsonl`、`decisions.md`、`changes/`、`handoff.md` 作为可移植工程记录核心。
+但它们通常围绕会话、任务或 IDE 操作展开，不把 `work.yaml`、`events.jsonl`、`decisions.md`、`changes/`、`handoff.md` 作为可移植工程记录核心。
 
 **GitHub Copilot coding agent / Cursor Background Agents**
 
@@ -1889,20 +1889,20 @@ V5: Enterprise governance
 
 范围：
 
-- `mission new`
-- `mission plan`
-- `mission approve`
-- `mission run`
-- `mission validate`
-- `mission status`
-- `mission trace`
-- `mission logs`
-- `mission debug`
-- `mission handoff`
+- `supermission new`
+- `supermission plan`
+- `supermission approve`
+- `supermission run`
+- `supermission validate`
+- `supermission status`
+- `supermission trace`
+- `supermission logs`
+- `supermission debug`
+- `supermission handoff`
 
 验收标准：
 
-- 能生成 `.missions/<mission-id>/mission.yaml`。
+- 能生成 `.supermission/<mission-id>/work.yaml`。
 - 能写入 `events.jsonl`。
 - 能生成 `plan.md`、`validation.log`、`handoff.md`。
 - 能展示 mission 当前状态。
@@ -1929,7 +1929,7 @@ V5: Enterprise governance
 - `monitor.md`：记录当前健康度、下一步、任务状态、待处理变更、最近事件和 supervisor signals。
 - `supervisor-signals.jsonl`：记录 stuck、blocked、risky command、linear mutation conflict 等异常信号。
 - `debug.md`：记录失败原因、上下文来源、下一步建议。
-- `mission inspect`：查看某个 event、tool call 或 validation failure。
+- `supermission inspect`：查看某个 event、tool call 或 validation failure。
 
 核心判断：
 
@@ -1949,18 +1949,18 @@ AI coding 的可观测性不是回放聊天，而是任务状态、工具调用�
 
 新增能力：
 
-- `mission change propose`
-- `mission change list`
-- `mission change approve`
-- `mission change reject`
-- `mission change split`
+- `supermission change propose`
+- `supermission change list`
+- `supermission change approve`
+- `supermission change reject`
+- `supermission change split`
 
 验收标准：
 
 - scope、acceptance、plan 的实质变更必须落到 `changes/change-xxx.yaml`。
 - 变更触发后 mission 进入 `needs_decision`。
 - approve/reject 后写入 `events.jsonl`。
-- 被批准的变更必须更新 `mission.yaml` 或 `plan.md`。
+- 被批准的变更必须更新 `work.yaml` 或 `plan.md`。
 
 ### 26.4 V0.3: Worktree Isolation and Rollback Checkpoints
 
@@ -1968,13 +1968,13 @@ AI coding 的可观测性不是回放聊天，而是任务状态、工具调用�
 
 新增能力：
 
-- `mission branch`
-- `mission worktree`
-- `mission checkpoint`
+- `supermission branch`
+- `supermission worktree`
+- `supermission checkpoint`
 - `mission checkpoints`
-- `mission rollback-plan`
+- `supermission rollback-plan`
 - `mission rollback`
-- `mission diff`
+- `supermission diff`
 
 验收标准：
 
@@ -1990,10 +1990,10 @@ AI coding 的可观测性不是回放聊天，而是任务状态、工具调用�
 
 新增能力：
 
-- `mission tasks`
-- `mission task add`
-- `mission task set-status`
-- `mission task audit-scope`
+- `supermission tasks`
+- `supermission task add`
+- `supermission task set-status`
+- `supermission task audit-scope`
 - validation secret redaction
 - task dependencies
 - automatic pending -> ready unblocking
@@ -2132,7 +2132,7 @@ worker-code + worker-tests -> validator -> reviewer
 
 - V0 headless CLI、基础 workflow state gates 和 Git-backed mission record 已落地。
 - V0.1 的 telemetry、tool-calls、supervisor signals、trace、logs、debug、inspect、monitor、扩展 secret redaction、可配置 redaction patterns、repeated failure signal 和 stale running task diagnosis 已落地。
-- V0.2 的 change proposal lifecycle 已落地；approved change 已可通过显式 `mission change apply` 安全追加到 mission spec 和 plan notes，自动/结构化 plan patch 仍是 TBD。
+- V0.2 的 change proposal lifecycle 已落地；approved change 已可通过显式 `supermission change apply` 安全追加到 mission spec 和 plan notes，自动/结构化 plan patch 仍是 TBD。
 - V0.3 的 branch、worktree、diff、task-scoped patch capture、checkpoint、rollback-plan、non-destructive rollback-check 已落地；自动 rollback 仍是 TBD。
 - V0.4 的 task ledger、dependency unblocking、linear mutation guard、scope drift audit 已落地。
 - 下一阶段应先补更完整的 project profile/policy、可配置 redaction policy、受控 plan patch、更完整的 state machine policy 和 TUI 设计验证，再进入真实 runner adapter；基础 policy init/show 已落地。
@@ -2141,7 +2141,7 @@ worker-code + worker-tests -> validator -> reviewer
 
 当前实现顺序：
 
-1. 先实现 V0 CLI 骨架和 `.missions/` record。
+1. 先实现 V0 CLI 骨架和 `.supermission/` record。
 2. 补上 V0.1 的 trace/log/debug artifacts。
 3. 实现 V0.2 change proposal。
 4. 实现 V0.3 git branch/worktree/checkpoint。
@@ -2225,7 +2225,7 @@ Validated Missions Completed per Week
 - Gas Town 的 Git-backed hooks/worktrees 值得借鉴，但 20-30 agent 并行不是早期目标。
 - Ruflo 的 Claude Code / Codex integration 值得借鉴，但 Mission Control 应优先定义 runner-neutral mission record。
 - 主实现语言改为 TypeScript，工具链采用 Bun-first。
-- V0 先证明 `.missions/` record 闭环；TUI、runner adapter、dashboard 后续再引入。
+- V0 先证明 `.supermission/` record 闭环；TUI、runner adapter、dashboard 后续再引入。
 - 测试策略不只包含 unit tests，还必须包含 property-based、CLI integration、golden artifacts、state machine、performance、security boundary、mutation 和前端 E2E。
 - 每个 CLI/TUI/Web/IDE 体验变更都需要 craft review，检查命令语义、输出审美、信息密度、错误态、空状态、长任务状态和标杆参考。
 

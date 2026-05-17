@@ -44,10 +44,10 @@ without adding unrelated user-visible surface area.
 ## Current Capability Baseline
 
 The first baseline is intentionally local and deterministic. It verifies that a
-small mission can move through the core project-management workflow with
+small work record can move through the core project-management workflow with
 evidence:
 
-- create mission
+- create work
 - analyze requirements
 - plan
 - approve
@@ -79,11 +79,11 @@ It should stay fast, deterministic, and free of external model calls.
 Each capability eval should score or assert at least these dimensions when
 relevant:
 
-- Workflow completion: the mission reaches the expected state.
+- Workflow completion: the work reaches the expected state.
 - Evidence completeness: required artifacts and JSONL records exist.
 - Validation strength: validation commands execute and failures are visible.
 - Review readiness: diff/review/handoff artifacts are present.
-- Runner portability: the same mission path can use different backends.
+- Runner portability: the same work path can use different backends.
 - Footprint quality: actor, backend, artifact, retry, token, and runtime fields
   are reconstructable.
 - Cost/performance: local commands stay below a documented latency budget;
@@ -107,7 +107,7 @@ Use public references as inputs to evaluation design:
   LLM applications.
 - LangGraph: durable execution, checkpoints, and stateful long-running agent
   workflow ideas.
-- Mission Control, Ruflo, Gas Town: orchestration vocabulary and tradeoffs,
+- local-first work record system, Ruflo, Gas Town: orchestration vocabulary and tradeoffs,
   especially coordinator/worker separation, durable state, and validation
   gates.
 
@@ -132,7 +132,7 @@ Supermission's staged path:
    formal model.
 4. Solver-backed checks: use SMT/model-checking where the formal model is
    sound enough to prove contradiction or missing cases.
-5. Evidence integration: write findings to `.missions/<id>/requirements-analysis.md`,
+5. Evidence integration: write findings to `.supermission/<id>/requirements-analysis.md`,
    events, telemetry, and supervisor signals.
 
 The current implementation covers stage 1.
@@ -145,9 +145,9 @@ The current implementation covers stage 1.
   deterministic, assertion-friendly, screenshot/trace-capable, and CI-friendly.
   Browser/computer-use agents can be optional exploratory validators later, but
   should not replace deterministic validation evidence.
-- Add reusable mission fixtures that cover failed validation, scope drift,
+- Add reusable work fixtures that cover failed validation, scope drift,
   runner retries, and profile fallback.
-- Add cost/performance reports that aggregate mission-level tokens, duration,
+- Add cost/performance reports that aggregate work-level tokens, duration,
   retries, validation time, and response size.
 - Add real runner eval profiles that remain opt-in and fail clearly when
   credentials are missing.

@@ -24,7 +24,7 @@ export async function withTempRepo<T>(fn: (repo: string) => Promise<T>): Promise
   }
 }
 
-export async function runMission(repo: string, args: string[]) {
+export async function runWork(repo: string, args: string[]) {
   return runProcess(bunBin, [join(process.cwd(), "src/cli.ts"), "--repo", repo, ...args], {
     cwd: process.cwd(),
   });

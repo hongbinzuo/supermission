@@ -52,7 +52,7 @@ requested.
 Rules:
 
 - Default unit tests must not call external model services.
-- Use `mission runner smoke` for direct backend checks.
+- Use `supermission runner smoke` for direct backend checks.
 - Use `SUPERMISSION_RUNNER_SMOKE=codex|claude|all` for opt-in integration tests.
 - Require explicit profile/model env or CLI flags for real backends.
 - Fail clearly when credentials or profiles are missing.
@@ -61,13 +61,13 @@ Rules:
 
 ## Database And Indexing
 
-Recommendation: `.missions/` remains the source of truth.
+Recommendation: `.supermission/` remains the source of truth.
 
 Future SQLite/vector/search indexes may be added only as derived caches:
 
-- rebuildable from `.missions/`
+- rebuildable from `.supermission/`
 - disposable without data loss
-- never the only copy of mission state
+- never the only copy of work state
 - never required to review or recover a mission
 - schema migrations must include rollback and rebuild plans
 

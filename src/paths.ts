@@ -1,19 +1,19 @@
 import { join } from "node:path";
 
-export const MISSION_ROOT = ".missions";
+export const WORK_ROOT = ".supermission";
 
-export type MissionPaths = ReturnType<typeof missionPaths>;
+export type WorkPaths = ReturnType<typeof workPaths>;
 
-export function missionPaths(repo: string, missionId: string) {
-  const root = join(repo, MISSION_ROOT, missionId);
+export function workPaths(repo: string, workId: string) {
+  const root = join(repo, WORK_ROOT, workId);
   return {
-    policy: join(repo, MISSION_ROOT, "policy.yaml"),
-    runners: join(repo, MISSION_ROOT, "runners.yaml"),
+    policy: join(repo, WORK_ROOT, "policy.yaml"),
+    runners: join(repo, WORK_ROOT, "runners.yaml"),
     root,
     tasks: join(root, "tasks"),
     changes: join(root, "changes"),
     checkpoints: join(root, "checkpoints"),
-    mission: join(root, "mission.yaml"),
+    work: join(root, "work.yaml"),
     events: join(root, "events.jsonl"),
     telemetry: join(root, "telemetry.jsonl"),
     toolCalls: join(root, "tool-calls.jsonl"),

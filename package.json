@@ -1,7 +1,7 @@
 {
   "name": "@hongbinzuo/supermission",
   "version": "0.1.0",
-  "description": "Local-first mission records for AI-assisted software work.",
+  "description": "Local-first work records for AI-assisted software work.",
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
@@ -17,13 +17,13 @@
     "ai",
     "agent",
     "coding",
-    "mission-control",
+    "work-records",
     "codex",
     "claude",
     "cli"
   ],
   "bin": {
-    "mission": "./bin/mission"
+    "supermission": "./bin/supermission"
   },
   "scripts": {
     "build": "tsup src/cli.ts --format esm --dts --clean --out-dir dist",
@@ -31,7 +31,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "mission": "bun src/cli.ts",
+    "supermission": "bun src/cli.ts",
     "prepack": "bun run build",
     "test": "vitest run",
     "test:capability": "vitest run tests/capability.test.ts",

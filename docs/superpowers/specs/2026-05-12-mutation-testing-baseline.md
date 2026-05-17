@@ -51,7 +51,7 @@ reports/mutation/mutation.html
 - `listMissionIds` 排序和忽略不完整目录。
 - risky command policy 覆盖每个高风险模式。
 - redaction policy 覆盖更多 token/key/header 变体。
-- scope audit 覆盖 allow/deny、untracked、tracked、rename、`.missions/` 忽略语义。
+- scope audit 覆盖 allow/deny、untracked、tracked、rename、`.supermission/` 忽略语义。
 - `readJsonl` 对空行、空白行、missing file 的行为。
 - `doctor` 对 stale handoff、checkpoint missing、pending change 的组合情况。
 - `summarizeMission` artifact path 和 finding count。

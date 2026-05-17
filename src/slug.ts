@@ -6,5 +6,5 @@ export function slugify(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
 
-  return slug.length > 0 ? slug : "mission";
+  return slug.length > 0 ? slug : "work";
 }

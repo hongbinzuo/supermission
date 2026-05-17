@@ -8,7 +8,8 @@ idea must map to Supermission's current goals and milestones.
 
 ## Positioning
 
-Supermission is the open-source, local-first Mission Control for AI Coding.
+Supermission is the open-source, local-first work record system for AI-assisted
+software delivery.
 
 The primary baseline is Factory Missions:
 
@@ -18,18 +19,25 @@ The primary baseline is Factory Missions:
 - Keep work understandable to a human owner.
 
 Supermission's concrete implementation differs by making repo-native
-`.missions/` records the source of truth from the start.
+`.supermission/` records the source of truth from the start.
+
+Multi-agent behavior should start from Factory-style software delivery roles.
+The useful early roles are planner, coder, QA, reviewer, documenter, and
+release/checklist operator. Supermission should prefer structured handoffs and
+validation evidence over agent-to-agent chat. Broader orchestration remains a
+valid reference and future expansion path, but it should be introduced through
+specific software-delivery use cases, feedback, and eval evidence.
 
 ## Main References
 
 ### 1. Factory Missions
 
-Source: <https://docs.factory.ai/cli/features/missions>
+Source: <https://docs.factory.ai/cli/features/works>
 
 Why it matters:
 
 - Factory Missions is the closest product baseline.
-- The useful abstraction is a mission as a planned, reviewable, milestone-based
+- The useful abstraction is a work as a planned, reviewable, milestone-based
   unit of work rather than an open-ended chat.
 - The validation-after-milestone loop is directly aligned with Supermission.
 
@@ -38,21 +46,42 @@ What Supermission should copy conceptually:
 - Collaborative planning before large execution.
 - Feature/milestone decomposition.
 - Explicit validation evidence.
-- User-visible mission progress.
+- User-visible work progress.
+- Clear role separation where it improves quality, especially coder and QA.
+- Serial execution with targeted parallelism where coordination overhead is low.
+- Fresh worker context for bounded features, with milestone validation before
+  moving forward.
 
 What Supermission should not copy blindly:
 
 - Closed product assumptions.
 - Cloud-first assumptions.
 - Any workflow that makes local repo records secondary.
+- Any implication that Supermission should make general-purpose orchestration
+  the MVP default before the software-delivery workflow is strong.
 
 Roadmap mapping:
 
-- V0: mission spec, plan, approve, run, validate, review, handoff.
+- V0: work spec, plan, approve, run, validate, review, handoff.
 - V0.5: runner backends that can execute the planned work.
 - V0.7+: milestone/task queues with stronger Git/worktree isolation.
 
-### 2. Builderz Labs Mission Control
+Factory official Missions notes to preserve as product constraints:
+
+- A mission starts with conversational scoping and plan approval.
+- An orchestrator decomposes large work into milestones and features.
+- Every milestone ends with validation.
+- Feature workers can use fresh context instead of one long overloaded session.
+- Validation workers are distinct from implementation workers.
+- Browser/computer-use validation runs alongside test/lint/build, not as a
+  replacement.
+- Model-agnostic role assignment is a structural advantage.
+- Serial execution with targeted parallelization has worked better than broad
+  parallelism; the right balance depends on the project and coordination cost.
+- Recursive orchestration can help large projects, but too many management
+  layers become overhead.
+
+### 2. Builderz Labs local-first work record system
 
 Source: <https://github.com/builderz-labs/mission-control>
 
@@ -63,14 +92,14 @@ Why it matters:
 
 What Supermission should copy conceptually:
 
-- A mission board/control-plane view over agent work.
+- A work board/control-plane view over agent work.
 - Agent status, task status, logs, and handoff as first-class review surfaces.
 - Self-hostable/open tooling expectations.
 
 What Supermission should not copy blindly:
 
 - Dashboard-first architecture before the engine contract is stable.
-- Any state model that bypasses Git-backed mission artifacts.
+- Any state model that bypasses Git-backed work artifacts.
 - A large monolithic app shape.
 
 Roadmap mapping:
@@ -98,7 +127,7 @@ What Supermission should copy conceptually:
 
 What Supermission should not copy blindly:
 
-- A large list of agents/plugins before the mission engine is reliable.
+- A large list of agents/plugins before the work engine is reliable.
 - Swarm execution before scope, merge, rollback, and validation are strong.
 - Marketing-driven capability claims without reproducible tests.
 
@@ -128,9 +157,9 @@ Concept mapping:
 
 | Gas Town concept  | Supermission-compatible abstraction                                      |
 | ----------------- | ------------------------------------------------------------------------ |
-| Mayor             | Mission supervisor / planner / coordinator                               |
+| Mayor             | Work supervisor / planner / coordinator                                  |
 | Worker agents     | Runner-backed actors                                                     |
-| Hooks / worktrees | Isolated mission or task workspaces                                      |
+| Hooks / worktrees | Isolated work or task workspaces                                         |
 | Beads             | Task ledger items with dependencies                                      |
 | Convoys           | Milestone or grouped task execution                                      |
 | MEOW              | Decompose work into explicit, reviewable units                           |
@@ -153,7 +182,7 @@ What Supermission should not copy blindly:
 
 Roadmap mapping:
 
-- V0 already has `.missions/`, task ledger, events, telemetry, supervisor
+- V0 already has `.supermission/`, task ledger, events, telemetry, supervisor
   signals, checkpoints, and rollback checks.
 - V0.7 should strengthen worktree isolation and task readiness.
 - Parallel mutation should wait for merge queue and review gates.
@@ -173,9 +202,9 @@ Useful ideas:
 
 Supermission mapping:
 
-- Keep the mission state machine explicit.
+- Keep the work state machine explicit.
 - Make gates and artifacts inspectable.
-- Prefer resumable mission records over hidden runtime memory.
+- Prefer resumable work records over hidden runtime memory.
 
 ### AutoGPT-style autonomous agents
 
@@ -192,7 +221,7 @@ Risks:
 
 Supermission mapping:
 
-- Use autonomy only inside mission boundaries.
+- Use autonomy only inside work boundaries.
 - Completion requires validation and evidence, not a model's claim.
 
 ### Claude Code, Codex, and other coding CLIs
@@ -200,8 +229,8 @@ Supermission mapping:
 Useful ideas:
 
 - Runners should be adapters.
-- The same mission should be executable through different backends.
-- Backend-specific auth/profile/config must stay outside the mission engine.
+- The same work should be executable through different backends.
+- Backend-specific auth/profile/config must stay outside the work engine.
 
 Supermission mapping:
 
@@ -212,13 +241,16 @@ Supermission mapping:
 
 1. Factory Missions is the main baseline.
 2. Supermission remains open-source and local-first.
-3. `.missions/` remains the source of truth.
+3. `.supermission/` remains the source of truth.
 4. Runner integration is plugin-shaped, but the V0 implementation can stay
    simple until the contract stabilizes.
-5. Multi-agent execution must be evidence-driven, not chat-driven.
-6. Parallel code mutation is deferred until isolation, merge, rollback, and
+5. Multi-agent execution must be role-bounded and evidence-driven, not
+   chat-driven.
+6. General orchestration remains a valid future expansion path, but it must
+   enter through concrete software-delivery use cases, feedback, and evals.
+7. Parallel code mutation is deferred until isolation, merge, rollback, and
    review are strong.
-7. Documentation must move with implementation.
+8. Documentation must move with implementation.
 
 ## Immediate Product Implications
 
@@ -231,7 +263,7 @@ Supermission mapping:
   review result, retry history, and handoff summary should be reconstructable
   without reading chat history.
 - Agent results need an evaluation mechanism. The first evaluation set should be
-  built from real missions: goal, acceptance criteria, baseline files, expected
+  built from real works: goal, acceptance criteria, baseline files, expected
   artifact evidence, validation commands, review rubric, and pass/fail labels.
 - Design plugin boundaries before adding many plugins.
 - Build TUI/control surfaces over existing records instead of inventing a second
@@ -252,13 +284,13 @@ Agent orchestration is not useful if the user cannot inspect where agents acted
 or judge whether the result is good. Supermission should treat these as core
 records:
 
-- Footprint map: a mission-level graph from actor to task, runner backend, tool
+- Footprint map: a work-level graph from actor to task, runner backend, tool
   calls, files changed, artifacts produced, validation commands, review findings,
   retries, and handoff.
 - Evaluation record: a structured assessment of agent output against acceptance
   criteria, validation evidence, scope discipline, review findings, and handoff
   quality.
-- Evaluation set: reusable mission fixtures collected from real work and small
+- Evaluation set: reusable work fixtures collected from real work and small
   synthetic cases. Each case should include goal, initial context, allowed scope,
   expected evidence, validation commands, review rubric, and labels.
 
@@ -266,6 +298,6 @@ Near-term implementation path:
 
 1. Add footprint fields to runner/tool-call records.
 2. Generate `footprint.md` from existing event/tool/telemetry/artifact records.
-3. Add `evals/` fixtures that can replay small mission scenarios.
-4. Add `mission eval run` to score a completed mission against a rubric.
-5. Promote high-signal real missions into regression eval cases.
+3. Add `evals/` fixtures that can replay small work record scenarios.
+4. Add `work eval run` to score a completed work against a rubric.
+5. Promote high-signal real works into regression eval cases.

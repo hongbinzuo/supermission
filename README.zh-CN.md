@@ -9,17 +9,17 @@
 
 [English README](./README.md)
 
-Supermission 是一个早期的开源 Mission Control for AI Coding 实现。
+Supermission 是一个早期的开源 local-first work records for AI-assisted software delivery 实现。
 
 产品方向是把 AI coding 从聊天记录变成工程记录：任务规格、计划、执行、
 验证、评审、交接、回退和可观测证据都沉淀到仓库里。当前实现保持克制：
-Bun-first TypeScript、本地优先、Git-backed `.missions/` 记录、线性代码变更、
+Bun-first TypeScript、本地优先、Git-backed `.supermission/` 记录、线性代码变更、
 强测试和可扩展 runner 层。
 
 ## V0 范围
 
-- Git-backed `.missions/<mission-id>/` 任务记录。
-- `mission.yaml` 作为 mission 规格和状态文件。
+- Git-backed `.supermission/<work-id>/` 任务记录。
+- `work.yaml` 作为 work 规格和状态文件。
 - `requirements-analysis.md` 用于实现前的需求质量检查。
 - Append-only `events.jsonl`、`telemetry.jsonl`、`tool-calls.jsonl`、
   `supervisor-signals.jsonl`。
@@ -27,11 +27,24 @@ Bun-first TypeScript、本地优先、Git-backed `.missions/` 记录、线性代
 - `plan.md`、`run.log`、`validation.log`、`debug.md`、`handoff.md`、
   `decisions.md`、`review.md`、`monitor.md`、`patch.diff` 等工程产物。
 - Headless CLI：创建、规划、批准、执行、验证、追踪、检查、监控、调试和交接。
-- 受控变更流程：`mission change ...`。
+- 受控变更流程：`supermission change ...`。
 - 线性代码变更保护：sidecar 任务后续可并行，但 `linear_write` 同时只能有一个。
-- 统一 runner 层：`record`、`shell`、`codex`、`claude` 通过同一 mission run 接口接入。
+- 统一 runner 层：`record`、`shell`、`codex`、`claude` 通过同一 supermission run 接口接入。
 
-核心 engine 保持 runner-neutral。模型运行时放在 runner/adapter 层，按 mission 可选启用。
+核心 engine 保持 runner-neutral。模型运行时放在 runner/adapter 层，按 work 可选启用。
+
+## 产品形态
+
+Supermission 不应该替代 Codex、Claude Code 或 IDE coding agent。目标形态是：
+
+- 独立的本地 engine，负责 work records、证据、验证、评审、交接和恢复状态。
+- 先做好快速 CLI，再做复用同一 engine 的 TUI。
+- 提供 adapter/plugin，让 Codex、Claude Code、IDE 和未来 app surface 可以创建 work、读取状态、附加证据或运行验证。
+- 后续可以增加后台进程，用于 runner 进度流、取消、通知和缓存投影。
+
+engine 是 source of truth；Codex/Claude/IDE 工具是 worker 或 client。这样既不强迫用户放弃已有 coding agent，也能让每次执行都有稳定的项目证据。
+
+UX 和响应速度不是后期美化，而是产品要求。长时间 runner 任务必须展示阶段、耗时、重试/profile 尝试、最新输出、取消路径和恢复路径；本地 list/status/summary 命令要足够快，适合编码过程中反复使用。
 
 ## 安装与发布状态
 
@@ -51,7 +64,7 @@ Bun-first TypeScript、本地优先、Git-backed `.missions/` 记录、线性代
 ```bash
 bun install
 bun run build
-bin/mission --help
+bin/supermission --help
 ```
 
 发布打包 dry run：
@@ -65,7 +78,7 @@ npm pack --dry-run
 
 ```bash
 npm install -g @hongbinzuo/supermission
-mission --help
+supermission --help
 ```
 
 ## 工具链
@@ -94,7 +107,7 @@ V0 已为编排做准备，但代码变更仍然保持线性。
 
 ```mermaid
 flowchart LR
-  User[Human owner] --> Spec[mission.yaml]
+  User[Human owner] --> Spec[work.yaml]
   Spec --> Plan[plan.md]
   Plan --> Gate{approve_plan}
   Gate --> Run[runner backend]
@@ -107,8 +120,8 @@ flowchart LR
 ```mermaid
 flowchart TB
   CLI[CLI / future TUI / editor adapters]
-  Engine[Local Mission Engine]
-  Store[Git-backed .missions records]
+  Engine[Local Work Engine]
+  Store[Git-backed .supermission records]
   Runners[Runner adapters]
   Tools[Shell / Codex / Claude Code / future plugins]
 
@@ -125,92 +138,92 @@ flowchart TB
 bun install
 bun run build
 
-bin/mission new "Add login validation" \
+bin/supermission new "Add login validation" \
   --acceptance "Invalid logins show an error" \
   --validation "bun run test"
 
-bin/mission plan <mission-id>
-bin/mission requirements check <mission-id>
-bin/mission approve <mission-id>
-bin/mission run <mission-id> \
+bin/supermission plan <work-id>
+bin/supermission requirements check <work-id>
+bin/supermission approve <work-id>
+bin/supermission run <work-id> \
   --backend shell \
   --command "printf 'implemented' > runner-output.txt"
-bin/mission run <mission-id> \
+bin/supermission run <work-id> \
   --backend codex \
   --profile your-profile \
   --fallback-profile another-profile \
   --prompt "Reply only with codex-smoke-ok." \
   --timeout-ms 60000
-bin/mission run <mission-id> \
+bin/supermission run <work-id> \
   --backend claude \
   --prompt "Reply only with claude-smoke-ok." \
   --timeout-ms 60000
-bin/mission validate <mission-id>
-bin/mission review create <mission-id>
-bin/mission handoff <mission-id>
+bin/supermission validate <work-id>
+bin/supermission review create <work-id>
+bin/supermission handoff <work-id>
 ```
 
 ## 命令索引
 
 核心流程：
 
-- `mission new`
-- `mission plan`
-- `mission requirements check`
-- `mission approve`
-- `mission run`
-- `mission validate`
-- `mission handoff`
+- `supermission new`
+- `supermission plan`
+- `supermission requirements check`
+- `supermission approve`
+- `supermission run`
+- `supermission validate`
+- `supermission handoff`
 
 人类评审和可观测性：
 
-- `mission status`
-- `mission summary`
-- `mission monitor`
-- `mission doctor`
-- `mission trace`
-- `mission logs`
-- `mission debug`
-- `mission inspect`
-- `mission review create`
-- `mission policy init`
-- `mission policy show`
+- `supermission status`
+- `work summary`
+- `supermission monitor`
+- `supermission doctor`
+- `supermission trace`
+- `supermission logs`
+- `supermission debug`
+- `supermission inspect`
+- `supermission review create`
+- `supermission policy init`
+- `supermission policy show`
 
 受控变更：
 
-- `mission change propose`
-- `mission change list`
-- `mission change show`
-- `mission change approve`
-- `mission change apply`
-- `mission change reject`
-- `mission change defer`
-- `mission change split`
+- `supermission change propose`
+- `supermission change list`
+- `supermission change show`
+- `supermission change approve`
+- `supermission change apply`
+- `supermission change reject`
+- `supermission change defer`
+- `supermission change split`
 
 任务台账：
 
-- `mission tasks`
-- `mission task add`
-- `mission task set-status`
-- `mission task audit-scope`
+- `supermission tasks`
+- `supermission task add`
+- `supermission task set-status`
+- `supermission task audit-scope`
 
 Runner 诊断：
 
-- `mission runner list`
-- `mission runner profiles`
-- `mission runner config init`
-- `mission runner config show`
-- `mission runner smoke`
+- `supermission runner list`
+- `supermission runner profiles`
+- `supermission runner config init`
+- `supermission runner config show`
+- `supermission runner smoke`
 
 Git 证据和隔离：
 
-- `mission diff`
-- `mission checkpoint create`
-- `mission checkpoint list`
-- `mission branch create`
-- `mission worktree create`
-- `mission rollback-plan`
-- `mission rollback-check`
+- `supermission diff`
+- `supermission checkpoint create`
+- `supermission checkpoint list`
+- `supermission branch create`
+- `supermission worktree create`
+- `supermission rollback-plan`
+- `supermission rollback-check`
 
 ## 产品路线图
 
@@ -219,20 +232,22 @@ Git 证据和隔离：
 
 | 里程碑 | 重点                                                                                                  | 当前状态 |
 | ------ | ----------------------------------------------------------------------------------------------------- | -------- |
-| V0     | 本地 mission records、CLI 状态机、artifacts、验证、评审、交接、回退计划                               | 进行中   |
+| V0     | 本地 work records、CLI 状态机、artifacts、验证、评审、交接、回退计划                                  | 进行中   |
 | V0.5   | 统一 runner 层，接入 record、shell、Codex、Claude Code；补真实集成 smoke tests                        | 进行中   |
 | V0.6   | 需求分析、本地能力测评、runner、validator、artifact writer、policy、workflow template 的插件/组件边界 | 进行中   |
 | V0.7   | Agent 足迹图、结果测评记录、可复用 eval set、Git/worktree 隔离、任务队列                              | 计划中   |
-| V1     | Terminal TUI 复用同一个 engine，不复制 mission logic                                                  | 计划中   |
+| V1     | Terminal TUI 复用同一个 engine，不复制 work logic                                                     | 计划中   |
 | V1.5   | CLI/TUI 合约稳定后做 editor adapters                                                                  | 计划中   |
 | V2     | 开源扩展点、安装发布流水线、兼容性目标文档                                                            | 计划中   |
 
 主要对标基线是 Factory Missions 的协作规划、按 milestone 执行和验证闭环。
-Supermission 的定位是这个方向的开源、本地优先版本，`.missions/` 是 source of truth。
+Supermission 的定位是这个方向的开源、本地优先版本，`.supermission/` 是 source of truth。
 
 参考项目调研见
 [`docs/research/agent-orchestration-reference.md`](./docs/research/agent-orchestration-reference.md)。
 这些项目用于抽象方法参考，不作为功能堆叠清单。
+Kiro、Codex、Claude Code 和 agent 编排差距分析见
+[`docs/research/kiro-codex-claude-orchestration-gap-analysis.md`](./docs/research/kiro-codex-claude-orchestration-gap-analysis.md)。
 Token 和运行性能策略见
 [`docs/research/token-performance-strategy.md`](./docs/research/token-performance-strategy.md)。
 Agent 调度、通信和前端性能取舍见
@@ -274,10 +289,10 @@ provider secret 写进仓库或 run log。匹配不到时，这个值会继续�
 使用 `--profile current` 可以跟随 CC Switch 当前选中的 Codex provider。
 
 需要自动换 profile 时，可以重复传入 `--fallback-profile`；前一个 profile 失败后，
-runner 会继续尝试后面的 profile，全部失败才让 mission run 失败。
+runner 会继续尝试后面的 profile，全部失败才让 supermission run 失败。
 
-项目级默认 runner 配置保存在 `.missions/runners.yaml`。使用
-`mission runner config init/show` 管理第一版配置；显式传给 `mission run` 的参数
+项目级默认 runner 配置保存在 `.supermission/runners.yaml`。使用
+`supermission runner config init/show` 管理第一版配置；显式传给 `supermission run` 的参数
 优先级高于项目配置。
 
 测试覆盖黑盒 CLI 集成、property-based tests、schema validation、失败分支、
@@ -290,5 +305,5 @@ Supermission 产品能力 baseline，不调用外部模型服务。当前完整�
 - License: Apache-2.0。
 - 公开发布路径：先 npm package，再 GitHub Releases；Homebrew/Docker 后置。
 - Codex/Claude Code 等真实后端 smoke test 保持显式 opt-in；缺 profile 或凭证要清晰失败，不能泄露密钥。
-- 数据库后续只能作为可重建索引/cache，不能取代 `.missions/` 的 source of truth。
+- 数据库后续只能作为可重建索引/cache，不能取代 `.supermission/` 的 source of truth。
 - validation command 为空时到底应标记 `blocked` 还是 `needs_decision`，仍需结合真实使用继续评估。

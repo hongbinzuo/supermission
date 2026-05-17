@@ -13,7 +13,7 @@ runtime latency. It complements the agent footprint and evaluation-set work.
   validation success.
 - Include requirements-analysis quality because unclear requirements waste
   runner tokens and create expensive rework.
-- Keep optimization evidence in `.missions/` instead of relying on chat history.
+- Keep optimization evidence in `.supermission/` instead of relying on chat history.
 
 ## Initial Implementation
 
@@ -38,12 +38,12 @@ output and records them in `tool-calls.jsonl`, `telemetry.jsonl`, and
 - Validation runtime and failure frequency by command.
 - Mission-level totals: total tokens, total runner time, total validation time,
   retries, failed attempts, and cost estimate.
-- Cost policy thresholds: warn/block when a mission exceeds configured budget.
+- Cost policy thresholds: warn/block when a work exceeds configured budget.
 
 ## Optimization Tactics
 
 - Prefer scoped task prompts over full-repo prompts.
-- Use mission artifacts as compact context instead of replaying chat.
+- Use work artifacts as compact context instead of replaying chat.
 - Cache stable repo summaries and validation results.
 - Keep runner prompts deterministic and short for smoke/eval cases.
 - Use cheaper/faster backends for planning, docs, and smoke checks when quality
@@ -57,7 +57,7 @@ output and records them in `tool-calls.jsonl`, `telemetry.jsonl`, and
 
 Each eval case should include:
 
-- mission goal
+- work goal
 - initial repo fixture or patch
 - allowed scope
 - acceptance criteria

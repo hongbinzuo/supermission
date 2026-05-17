@@ -4,14 +4,14 @@ Date: 2026-05-17
 
 Target package: `@hongbinzuo/supermission`
 
-Binary command: `mission`
+Binary command: `supermission`
 
 ## Release Type
 
 First public release should be an MVP developer preview:
 
 - local-first CLI
-- `.missions/` source of truth
+- `.supermission/` source of truth
 - deterministic requirement checks
 - record/shell/Codex/Claude runner adapters
 - opt-in real runner smoke tests
@@ -41,27 +41,27 @@ npm pack
 tmp=$(mktemp -d)
 repo=$(mktemp -d)
 npm install --prefix "$tmp/pkg" -g "$(pwd)/hongbinzuo-supermission-0.1.0.tgz"
-"$tmp/pkg/bin/mission" --help
+"$tmp/pkg/bin/supermission" --help
 git init "$repo"
-"$tmp/pkg/bin/mission" --repo "$repo" new "Installed package smoke" \
+"$tmp/pkg/bin/supermission" --repo "$repo" new "Installed package smoke" \
   --id install-smoke \
   --acceptance "The installed CLI works" \
   --validation "node --version"
-"$tmp/pkg/bin/mission" --repo "$repo" plan install-smoke
-"$tmp/pkg/bin/mission" --repo "$repo" requirements check install-smoke
-"$tmp/pkg/bin/mission" --repo "$repo" approve install-smoke
-"$tmp/pkg/bin/mission" --repo "$repo" run install-smoke \
+"$tmp/pkg/bin/supermission" --repo "$repo" plan install-smoke
+"$tmp/pkg/bin/supermission" --repo "$repo" requirements check install-smoke
+"$tmp/pkg/bin/supermission" --repo "$repo" approve install-smoke
+"$tmp/pkg/bin/supermission" --repo "$repo" run install-smoke \
   --backend shell \
   --command "printf installed-ok"
-"$tmp/pkg/bin/mission" --repo "$repo" validate install-smoke
-"$tmp/pkg/bin/mission" --repo "$repo" status install-smoke
+"$tmp/pkg/bin/supermission" --repo "$repo" validate install-smoke
+"$tmp/pkg/bin/supermission" --repo "$repo" status install-smoke
 rm -rf "$tmp" "$repo" hongbinzuo-supermission-0.1.0.tgz
 ```
 
 Optional real runner smoke:
 
 ```bash
-bin/mission runner smoke \
+bin/supermission runner smoke \
   --backend codex \
   --profile current \
   --prompt "Reply only with runner-smoke-ok." \
@@ -71,9 +71,9 @@ bin/mission runner smoke \
 ## Package Checks
 
 - Package name is scoped because `supermission` is already occupied on npm.
-- Package should include `dist/`, `bin/mission`, README files, LICENSE, selected
+- Package should include `dist/`, `bin/supermission`, README files, LICENSE, selected
   docs, and eval baseline.
-- Package should not include source tests, ignored reports, `.missions/`, local
+- Package should not include source tests, ignored reports, `.supermission/`, local
   profiles, auth files, or secrets.
 - `private` must be removed only immediately before actual npm publication.
 
@@ -95,5 +95,5 @@ git clone git@github.com:hongbinzuo/supermission.git
 cd supermission
 bun install
 bun run build
-bin/mission --help
+bin/supermission --help
 ```

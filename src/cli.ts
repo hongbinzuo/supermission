@@ -13,7 +13,7 @@ import {
   type RunnerOptions,
 } from "./runner.js";
 import { redactSecrets } from "./redaction.js";
-import { MissionStore } from "./store.js";
+import { WorkStore } from "./store.js";
 import { ChangeTypeSchema, TaskStatusSchema } from "./types.js";
 
 type GlobalOptions = {
@@ -39,65 +39,65 @@ type RunnerCliOptions = {
 export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   const program = new Command();
   program
-    .name("mission")
-    .description("Mission Control for AI Coding")
+    .name("supermission")
+    .description("local-first work records for AI-assisted software delivery")
     .option("--repo <path>", "Repository root", ".")
     .showHelpAfterError();
 
   program
     .command("new")
-    .description("Create a mission record")
-    .argument("<goal...>", "Mission goal")
-    .option("--id <id>", "Explicit mission id")
+    .description("Create a work record")
+    .argument("<goal...>", "Work goal")
+    .option("--id <id>", "Explicit work id")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--acceptance <item>", "Acceptance criterion", collect, [])
     .option("--validation <command>", "Validation command", collect, [])
     .action(async (goalParts: string[], options: NewOptions) => {
       const store = storeFrom(program);
-      const missionId = await store.createMission({
+      const workId = await store.createWork({
         id: options.id,
         goal: goalParts.join(" "),
         actor: options.actor,
         acceptance: options.acceptance,
         validationCommands: options.validation,
       });
-      console.log(missionId);
+      console.log(workId);
     });
 
   program
     .command("plan")
     .description("Generate an initial plan artifact")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "planner-agent")
     .option("--note <note>", "Planning note")
-    .action(async (missionId: string, options: { actor: string; note?: string }) => {
-      await storeFrom(program).writePlan(missionId, options.actor, options.note);
-      console.log(`planned ${missionId}`);
+    .action(async (workId: string, options: { actor: string; note?: string }) => {
+      await storeFrom(program).writePlan(workId, options.actor, options.note);
+      console.log(`planned ${workId}`);
     });
 
   const requirements = program
     .command("requirements")
-    .description("Analyze mission requirements before implementation");
+    .description("Analyze work requirements before implementation");
 
   requirements
     .command("check")
     .description("Create requirements-analysis.md and report requirement quality findings")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "requirements-analyst")
     .option("--json", "Print JSON")
     .option("--block-on-findings", "Exit non-zero when blocking findings are present")
     .action(
       async (
-        missionId: string,
+        workId: string,
         options: { actor: string; json?: boolean; blockOnFindings?: boolean },
       ) => {
-        const result = await storeFrom(program).analyzeRequirements(missionId, options.actor);
+        const result = await storeFrom(program).analyzeRequirements(workId, options.actor);
         const blocking = result.findings.filter((finding) => finding.severity === "blocking");
         if (options.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           console.log(
-            `requirements ${missionId}: ${result.findings.length} finding(s), ${blocking.length} blocking`,
+            `requirements ${workId}: ${result.findings.length} finding(s), ${blocking.length} blocking`,
           );
           for (const finding of result.findings) {
             console.log(`${finding.id} ${finding.severity} ${finding.type}: ${finding.message}`);
@@ -113,16 +113,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   program
     .command("approve")
     .description("Approve a gate")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--gate <gate>", "Gate id", "approve_plan")
     .option("--reason <reason>", "Approval reason")
-    .action(
-      async (missionId: string, options: { actor: string; gate: string; reason?: string }) => {
-        await storeFrom(program).approve(missionId, options.actor, options.gate, options.reason);
-        console.log(`approved ${options.gate} for ${missionId}`);
-      },
-    );
+    .action(async (workId: string, options: { actor: string; gate: string; reason?: string }) => {
+      await storeFrom(program).approve(workId, options.actor, options.gate, options.reason);
+      console.log(`approved ${options.gate} for ${workId}`);
+    });
 
   const runnerCommand = program.command("runner").description("Inspect runner backends");
   runnerCommand
@@ -160,14 +158,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   const runnerConfigCommand = runnerCommand.command("config").description("Manage runner config");
   runnerConfigCommand
     .command("show")
-    .description("Show .missions/runners.yaml or the default runner config")
+    .description("Show .supermission/runners.yaml or the default runner config")
     .action(async () => {
       console.log(YAML.stringify(await storeFrom(program).readRunnerConfig()).trimEnd());
     });
 
   runnerConfigCommand
     .command("init")
-    .description("Write .missions/runners.yaml")
+    .description("Write .supermission/runners.yaml")
     .option("--default-backend <backend>", "Default backend", parseRunnerBackend, "record")
     .option("--command <command>", "Default shell command for the selected backend")
     .option("--prompt <prompt>", "Default prompt for the selected backend")
@@ -229,7 +227,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   runnerCommand
     .command("smoke")
-    .description("Run a backend smoke test without creating a mission")
+    .description("Run a backend smoke test without creating a work")
     .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
     .option("--command <command>", "Shell command for shell runner")
     .option("--prompt <prompt>", "Smoke prompt", "Reply only with runner-smoke-ok.")
@@ -262,7 +260,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         {
           repo: store.repo,
           actor: "runner-smoke",
-          mission: {
+          work: {
             id: "runner-smoke",
             goal: "Runner smoke test",
             status: "approved",
@@ -291,7 +289,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   program
     .command("run")
     .description("Record a V0 sequential implementation run")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "worker-agent")
     .option("--note <note>", "Run note")
     .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
@@ -314,7 +312,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--retry-exit-code <code>", "Exit code that should be retried", collectInteger, [])
     .action(
       async (
-        missionId: string,
+        workId: string,
         options: RunnerCliOptions & {
           actor: string;
           note?: string;
@@ -326,8 +324,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
 
         if (backend === "record") {
-          await store.recordRun(missionId, options.actor, options.note);
-          console.log(`recorded run for ${missionId}`);
+          await store.recordRun(workId, options.actor, options.note);
+          console.log(`recorded run for ${workId}`);
           return;
         }
 
@@ -336,29 +334,29 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
           if (backend === "shell" && !mergedOptions.command) {
             throw new Error("shell runner requires --command");
           }
-          const spec = await store.beginRun(missionId, options.actor);
+          const spec = await store.beginRun(workId, options.actor);
           startedRun = true;
           const execution = await executeRunner(
             backend,
             {
               repo: store.repo,
-              mission: spec,
+              work: spec,
               actor: options.actor,
               note: options.note,
             },
             mergedOptions,
           );
-          await store.recordRunnerExecution(missionId, options.actor, execution);
+          await store.recordRunnerExecution(workId, options.actor, execution);
           console.log(
-            `${backend} runner ${missionId} exit ${execution.exitCode} (${execution.durationMs}ms)`,
+            `${backend} runner ${workId} exit ${execution.exitCode} (${execution.durationMs}ms)`,
           );
           process.exitCode = execution.exitCode === 0 ? 0 : execution.exitCode;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (startedRun) {
             try {
-              await store.updateStatus(missionId, "failed", options.actor, message);
-              await store.writeDebug(missionId, options.actor, message);
+              await store.updateStatus(workId, "failed", options.actor, message);
+              await store.writeDebug(workId, options.actor, message);
             } catch {
               // Ignore secondary cleanup errors.
             }
@@ -372,16 +370,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   program
     .command("validate")
     .description("Run validation commands")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "validator-agent")
     .option("--cmd <command>", "Override validation command", collect, [])
     .option("--allow-risky", "Allow validation commands flagged by the risky command policy")
     .action(
-      async (
-        missionId: string,
-        options: { actor: string; cmd: string[]; allowRisky?: boolean },
-      ) => {
-        const result = await storeFrom(program).validate(missionId, options.actor, {
+      async (workId: string, options: { actor: string; cmd: string[]; allowRisky?: boolean }) => {
+        const result = await storeFrom(program).validate(workId, options.actor, {
           commands: options.cmd,
           allowRisky: options.allowRisky,
         });
@@ -391,33 +386,33 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   program
     .command("status")
-    .description("Show mission status or list missions")
-    .argument("[mission-id]")
-    .action(async (missionId?: string) => {
+    .description("Show work status or list works")
+    .argument("[work-id]")
+    .action(async (workId?: string) => {
       const store = storeFrom(program);
-      if (missionId) {
-        const spec = await store.readMission(missionId);
+      if (workId) {
+        const spec = await store.readWork(workId);
         console.log(`${spec.id} ${spec.status} - ${spec.goal}`);
         return;
       }
-      const ids = await store.listMissionIds();
+      const ids = await store.listWorkIds();
       if (ids.length === 0) {
-        console.log("No missions found.");
+        console.log("No works found.");
         return;
       }
       for (const id of ids) {
-        const spec = await store.readMission(id);
+        const spec = await store.readWork(id);
         console.log(`${spec.id} ${spec.status} - ${spec.goal}`);
       }
     });
 
   program
     .command("summary")
-    .description("Show a compact mission summary for human review")
-    .argument("<mission-id>")
+    .description("Show a compact work summary for human review")
+    .argument("<work-id>")
     .option("--json", "Print JSON")
-    .action(async (missionId: string, options: { json?: boolean }) => {
-      const summary = await storeFrom(program).summarizeMission(missionId);
+    .action(async (workId: string, options: { json?: boolean }) => {
+      const summary = await storeFrom(program).summarizeWork(workId);
       if (options.json) {
         console.log(JSON.stringify(summary, null, 2));
         return;
@@ -443,11 +438,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   program
     .command("doctor")
-    .description("Diagnose mission health and next actions")
-    .argument("<mission-id>")
+    .description("Diagnose work health and next actions")
+    .argument("<work-id>")
     .option("--json", "Print JSON")
-    .action(async (missionId: string, options: { json?: boolean }) => {
-      const findings = await storeFrom(program).diagnoseMission(missionId);
+    .action(async (workId: string, options: { json?: boolean }) => {
+      const findings = await storeFrom(program).diagnoseWork(workId);
       const hasBlocking = findings.some((finding) => finding.severity === "blocking");
       if (options.json) {
         console.log(JSON.stringify(findings, null, 2));
@@ -463,18 +458,18 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       }
     });
 
-  const policy = program.command("policy").description("Manage project mission policy");
+  const policy = program.command("policy").description("Manage project work policy");
 
   policy
     .command("show")
-    .description("Show .missions/policy.yaml or the default policy")
+    .description("Show .supermission/policy.yaml or the default policy")
     .action(async () => {
       console.log(YAML.stringify(await storeFrom(program).readPolicy()).trimEnd());
     });
 
   policy
     .command("init")
-    .description("Write .missions/policy.yaml")
+    .description("Write .supermission/policy.yaml")
     .option("--validation-allow <pattern>", "Allowed validation command pattern", collect, [])
     .option(
       "--redaction-pattern <pattern>",
@@ -492,36 +487,36 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   program
     .command("monitor")
-    .description("Generate a mission monitoring report")
-    .argument("<mission-id>")
+    .description("Generate a work monitoring report")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "supervisor-agent")
     .option("--json", "Print JSON without writing monitor.md")
-    .action(async (missionId: string, options: { actor: string; json?: boolean }) => {
+    .action(async (workId: string, options: { actor: string; json?: boolean }) => {
       const store = storeFrom(program);
       if (options.json) {
-        console.log(JSON.stringify(await store.monitorMission(missionId), null, 2));
+        console.log(JSON.stringify(await store.monitorWork(workId), null, 2));
         return;
       }
-      console.log((await store.writeMonitor(missionId, options.actor)).trimEnd());
+      console.log((await store.writeMonitor(workId, options.actor)).trimEnd());
     });
 
   program
     .command("tasks")
-    .description("List mission tasks")
-    .argument("<mission-id>")
-    .action(async (missionId: string) => {
-      const tasks = await storeFrom(program).listTasks(missionId);
+    .description("List work tasks")
+    .argument("<work-id>")
+    .action(async (workId: string) => {
+      const tasks = await storeFrom(program).listTasks(workId);
       for (const task of tasks) {
         console.log(`${task.id} ${task.status} ${task.actor_role} - ${task.title}`);
       }
     });
 
-  const task = program.command("task").description("Manage mission task ledger");
+  const task = program.command("task").description("Manage work task ledger");
 
   task
     .command("add")
-    .description("Add a task to the mission ledger without executing it")
-    .argument("<mission-id>")
+    .description("Add a task to the work ledger without executing it")
+    .argument("<work-id>")
     .requiredOption("--title <title>", "Task title")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--actor-role <role>", "Responsible actor role", "worker-agent")
@@ -534,9 +529,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--scope-allow <pattern>", "Allowed scope pattern", collect, [])
     .option("--scope-deny <pattern>", "Denied scope pattern", collect, [])
     .option("--validation <command>", "Validation command", collect, [])
-    .action(async (missionId: string, options: TaskAddOptions) => {
+    .action(async (workId: string, options: TaskAddOptions) => {
       const mutationMode = parseMutationMode(options.mutationMode);
-      const created = await storeFrom(program).addTask(missionId, {
+      const created = await storeFrom(program).addTask(workId, {
         actor: options.actor,
         title: options.title,
         actorRole: options.actorRole,
@@ -552,57 +547,50 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   task
     .command("set-status")
     .description("Set task status")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .argument("<task-id>")
     .requiredOption(
       "--status <status>",
       "pending | ready | running | needs_review | done | blocked | failed",
     )
     .option("--actor <actor>", "Actor id", "local-user")
-    .action(async (missionId: string, taskId: string, options: TaskSetStatusOptions) => {
+    .action(async (workId: string, taskId: string, options: TaskSetStatusOptions) => {
       const status = TaskStatusSchema.parse(options.status);
-      const updated = await storeFrom(program).setTaskStatus(
-        missionId,
-        taskId,
-        status,
-        options.actor,
-      );
+      const updated = await storeFrom(program).setTaskStatus(workId, taskId, status, options.actor);
       console.log(`${updated.id} ${updated.status}`);
     });
 
   task
     .command("audit-scope")
     .description("Audit current git changes against one task scope")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .argument("<task-id>")
     .option("--actor <actor>", "Actor id", "supervisor-agent")
     .option("--json", "Print JSON")
-    .action(
-      async (missionId: string, taskId: string, options: { actor: string; json?: boolean }) => {
-        const result = await storeFrom(program).auditTaskScope(missionId, taskId, options.actor);
-        if (options.json) {
-          console.log(JSON.stringify(result, null, 2));
-          return;
+    .action(async (workId: string, taskId: string, options: { actor: string; json?: boolean }) => {
+      const result = await storeFrom(program).auditTaskScope(workId, taskId, options.actor);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log(
+        `scope audit ${result.task}: ${result.changed_files.length} changed, ${result.violations.length} violation(s)`,
+      );
+      if (result.violations.length > 0) {
+        for (const violation of result.violations) {
+          console.log(`- ${violation.reason}: ${violation.file}`);
         }
-        console.log(
-          `scope audit ${result.task}: ${result.changed_files.length} changed, ${result.violations.length} violation(s)`,
-        );
-        if (result.violations.length > 0) {
-          for (const violation of result.violations) {
-            console.log(`- ${violation.reason}: ${violation.file}`);
-          }
-        }
-      },
-    );
+      }
+    });
 
   program
     .command("diff")
     .description("Capture current git diff into patch.diff")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--task <task-id>", "Capture only the patch inside one task scope")
-    .action(async (missionId: string, options: { actor: string; task?: string }) => {
-      const diff = await storeFrom(program).captureDiff(missionId, options.actor, {
+    .action(async (workId: string, options: { actor: string; task?: string }) => {
+      const diff = await storeFrom(program).captureDiff(workId, options.actor, {
         taskId: options.task,
       });
       console.log(`captured patch.diff (${Buffer.byteLength(diff)} bytes)`);
@@ -615,13 +603,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   checkpoint
     .command("create")
     .description("Capture current git diff as a checkpoint")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--label <label>", "Checkpoint label", "manual checkpoint")
     .option("--task <task-id>", "Capture only the patch inside one task scope")
-    .action(async (missionId: string, options: { actor: string; label: string; task?: string }) => {
+    .action(async (workId: string, options: { actor: string; label: string; task?: string }) => {
       const created = await storeFrom(program).createCheckpoint(
-        missionId,
+        workId,
         options.actor,
         options.label,
         { taskId: options.task },
@@ -631,10 +619,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   checkpoint
     .command("list")
-    .description("List mission checkpoints")
-    .argument("<mission-id>")
-    .action(async (missionId: string) => {
-      const checkpoints = await storeFrom(program).listCheckpoints(missionId);
+    .description("List work checkpoints")
+    .argument("<work-id>")
+    .action(async (workId: string) => {
+      const checkpoints = await storeFrom(program).listCheckpoints(workId);
       for (const checkpoint of checkpoints) {
         console.log(
           `${checkpoint.id} ${checkpoint.base_ref} ${checkpoint.created_at} - ${checkpoint.label}`,
@@ -642,62 +630,60 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       }
     });
 
-  const branch = program.command("branch").description("Manage mission git branches");
+  const branch = program.command("branch").description("Manage work git branches");
 
   branch
     .command("create")
-    .description("Create a mission branch without checking it out")
-    .argument("<mission-id>")
+    .description("Create a work branch without checking it out")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--name <branch>", "Branch name override")
-    .action(async (missionId: string, options: { actor: string; name?: string }) => {
-      const isolation = await storeFrom(program).createBranch(missionId, {
+    .action(async (workId: string, options: { actor: string; name?: string }) => {
+      const isolation = await storeFrom(program).createBranch(workId, {
         actor: options.actor,
         branch: options.name,
       });
       console.log(`branch ${isolation.branch}`);
     });
 
-  const worktree = program.command("worktree").description("Manage mission git worktrees");
+  const worktree = program.command("worktree").description("Manage work git worktrees");
 
   worktree
     .command("create")
-    .description("Create a mission worktree at an explicit path")
-    .argument("<mission-id>")
+    .description("Create a work worktree at an explicit path")
+    .argument("<work-id>")
     .requiredOption("--path <path>", "Worktree path")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--branch <branch>", "Branch name override")
-    .action(
-      async (missionId: string, options: { path: string; actor: string; branch?: string }) => {
-        const isolation = await storeFrom(program).createWorktree(missionId, {
-          actor: options.actor,
-          path: options.path,
-          branch: options.branch,
-        });
-        console.log(`worktree ${isolation.branch} ${isolation.worktree_path}`);
-      },
-    );
+    .action(async (workId: string, options: { path: string; actor: string; branch?: string }) => {
+      const isolation = await storeFrom(program).createWorktree(workId, {
+        actor: options.actor,
+        path: options.path,
+        branch: options.branch,
+      });
+      console.log(`worktree ${isolation.branch} ${isolation.worktree_path}`);
+    });
 
   program
     .command("rollback-plan")
     .description("Generate a non-destructive rollback plan")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--checkpoint <checkpoint-id>", "Checkpoint id")
-    .action(async (missionId: string, options: { actor: string; checkpoint?: string }) => {
-      await storeFrom(program).writeRollbackPlan(missionId, options.actor, options.checkpoint);
-      console.log(`rollback-plan.md written for ${missionId}`);
+    .action(async (workId: string, options: { actor: string; checkpoint?: string }) => {
+      await storeFrom(program).writeRollbackPlan(workId, options.actor, options.checkpoint);
+      console.log(`rollback-plan.md written for ${workId}`);
     });
 
   program
     .command("rollback-check")
     .description("Check whether a checkpoint patch can be reversed cleanly")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--checkpoint <checkpoint-id>", "Checkpoint id")
-    .action(async (missionId: string, options: { actor: string; checkpoint?: string }) => {
+    .action(async (workId: string, options: { actor: string; checkpoint?: string }) => {
       const result = await storeFrom(program).checkRollback(
-        missionId,
+        workId,
         options.actor,
         options.checkpoint,
       );
@@ -709,8 +695,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   change
     .command("propose")
-    .description("Propose a controlled mission change")
-    .argument("<mission-id>")
+    .description("Propose a controlled work change")
+    .argument("<work-id>")
     .requiredOption("--reason <reason>", "Reason for the change")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--source <kind>", "human | agent | validation | review | system", "human")
@@ -720,11 +706,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--option <option>", "Decision option", collect, [])
     .option("--recommendation <recommendation>", "Recommended option")
     .option("--gate <gate>", "Required gate override")
-    .action(async (missionId: string, options: ChangeProposeOptions) => {
+    .action(async (workId: string, options: ChangeProposeOptions) => {
       const type = ChangeTypeSchema.parse(options.type);
       const risk = parseRisk(options.risk);
       const sourceKind = parseSourceKind(options.source);
-      const proposal = await storeFrom(program).proposeChange(missionId, {
+      const proposal = await storeFrom(program).proposeChange(workId, {
         actor: options.actor,
         sourceKind,
         type,
@@ -740,10 +726,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   change
     .command("list")
-    .description("List mission change proposals")
-    .argument("<mission-id>")
-    .action(async (missionId: string) => {
-      const changes = await storeFrom(program).listChanges(missionId);
+    .description("List work change proposals")
+    .argument("<work-id>")
+    .action(async (workId: string) => {
+      const changes = await storeFrom(program).listChanges(workId);
       for (const proposal of changes) {
         console.log(
           `${proposal.id} ${proposal.status} ${proposal.type} ${proposal.risk} - ${proposal.reason}`,
@@ -754,17 +740,17 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   change
     .command("show")
     .description("Show one change proposal")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .argument("<change-id>")
-    .action(async (missionId: string, changeId: string) => {
-      const proposal = await storeFrom(program).readChange(missionId, changeId);
+    .action(async (workId: string, changeId: string) => {
+      const proposal = await storeFrom(program).readChange(workId, changeId);
       console.log(YAML.stringify(proposal).trimEnd());
     });
 
   change
     .command("apply")
-    .description("Apply an approved change to mission.yaml")
-    .argument("<mission-id>")
+    .description("Apply an approved change to work.yaml")
+    .argument("<work-id>")
     .argument("<change-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--acceptance <item>", "Append acceptance criterion", collect, [])
@@ -772,8 +758,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--workflow-step <step>", "Append workflow step", collect, [])
     .option("--plan-note <note>", "Append controlled note to plan.md", collect, [])
     .option("--note <note>", "Application note")
-    .action(async (missionId: string, changeId: string, options: ChangeApplyOptions) => {
-      const result = await storeFrom(program).applyChange(missionId, changeId, {
+    .action(async (workId: string, changeId: string, options: ChangeApplyOptions) => {
+      const result = await storeFrom(program).applyChange(workId, changeId, {
         actor: options.actor,
         acceptance: options.acceptance,
         validationCommands: options.validation,
@@ -798,13 +784,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     change
       .command(status)
       .description(`${status} a change proposal`)
-      .argument("<mission-id>")
+      .argument("<work-id>")
       .argument("<change-id>")
       .option("--actor <actor>", "Actor id", "local-user")
       .option("--reason <reason>", "Decision reason")
-      .action(async (missionId: string, changeId: string, options: ChangeDecisionOptions) => {
+      .action(async (workId: string, changeId: string, options: ChangeDecisionOptions) => {
         const proposal = await storeFrom(program).decideChange(
-          missionId,
+          workId,
           changeId,
           storedStatus,
           options.actor,
@@ -816,10 +802,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   program
     .command("trace")
-    .description("Show mission event timeline")
-    .argument("<mission-id>")
-    .action(async (missionId: string) => {
-      const events = await storeFrom(program).readEvents(missionId);
+    .description("Show work event timeline")
+    .argument("<work-id>")
+    .action(async (workId: string) => {
+      const events = await storeFrom(program).readEvents(workId);
       for (const event of events) {
         const details = ["from", "to", "gate", "artifact", "reason", "exit_code"]
           .filter((key) => event[key] !== undefined && event[key] !== "")
@@ -834,9 +820,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   program
     .command("logs")
     .description("Show validation and tool-call logs")
-    .argument("<mission-id>")
-    .action(async (missionId: string) => {
-      const paths = storeFrom(program).paths(missionId);
+    .argument("<work-id>")
+    .action(async (workId: string) => {
+      const paths = storeFrom(program).paths(workId);
       console.log(await readFile(paths.validationLog, "utf8").catch(() => ""));
       const toolCalls = await readFile(paths.toolCalls, "utf8").catch(() => "");
       if (toolCalls.trim().length > 0) {
@@ -848,44 +834,44 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   program
     .command("debug")
     .description("Generate and show debug artifact")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--reason <reason>", "Debug reason")
-    .action(async (missionId: string, options: { actor: string; reason?: string }) => {
+    .action(async (workId: string, options: { actor: string; reason?: string }) => {
       const store = storeFrom(program);
-      await store.writeDebug(missionId, options.actor, options.reason);
-      console.log((await readFile(store.paths(missionId).debug, "utf8")).trimEnd());
+      await store.writeDebug(workId, options.actor, options.reason);
+      console.log((await readFile(store.paths(workId).debug, "utf8")).trimEnd());
     });
 
   const review = program.command("review").description("Manage review artifacts");
 
   review
     .command("create")
-    .description("Create a review artifact from current mission evidence")
-    .argument("<mission-id>")
+    .description("Create a review artifact from current work evidence")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "reviewer-agent")
-    .action(async (missionId: string, options: { actor: string }) => {
-      await storeFrom(program).writeReview(missionId, options.actor);
-      console.log(`review.md written for ${missionId}`);
+    .action(async (workId: string, options: { actor: string }) => {
+      await storeFrom(program).writeReview(workId, options.actor);
+      console.log(`review.md written for ${workId}`);
     });
 
   program
     .command("inspect")
     .description("Inspect one JSONL record")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .argument("<stream>", "events | telemetry | tool-calls | supervisor")
     .argument("<selector>", "Zero-based record index or stable record id")
-    .action(async (missionId: string, stream: string, selector: string) => {
+    .action(async (workId: string, stream: string, selector: string) => {
       const store = storeFrom(program);
       const records: Array<Record<string, unknown>> | undefined =
         stream === "events"
-          ? await store.readEvents(missionId)
+          ? await store.readEvents(workId)
           : stream === "telemetry"
-            ? await store.readTelemetry(missionId)
+            ? await store.readTelemetry(workId)
             : stream === "tool-calls"
-              ? await store.readToolCalls(missionId)
+              ? await store.readToolCalls(workId)
               : stream === "supervisor"
-                ? await store.readSupervisorSignals(missionId)
+                ? await store.readSupervisorSignals(workId)
                 : undefined;
       if (!records) throw new Error(`unknown inspect stream: ${stream}`);
       const byId = records.find((record) => record.record_id === selector);
@@ -907,12 +893,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   program
     .command("handoff")
     .description("Generate handoff artifact")
-    .argument("<mission-id>")
+    .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "handoff-agent")
-    .option("--no-complete", "Do not complete validated mission")
-    .action(async (missionId: string, options: { actor: string; complete?: boolean }) => {
-      await storeFrom(program).writeHandoff(missionId, options.actor, options.complete !== false);
-      console.log(`handoff written for ${missionId}`);
+    .option("--no-complete", "Do not complete validated work")
+    .action(async (workId: string, options: { actor: string; complete?: boolean }) => {
+      await storeFrom(program).writeHandoff(workId, options.actor, options.complete !== false);
+      console.log(`handoff written for ${workId}`);
     });
 
   await program.parseAsync(argv, { from: "user" });
@@ -928,9 +914,9 @@ function collectInteger(value: string, previous: number[]): number[] {
   return previous;
 }
 
-function storeFrom(program: Command): MissionStore {
+function storeFrom(program: Command): WorkStore {
   const options = program.opts<GlobalOptions>();
-  return new MissionStore(options.repo);
+  return new WorkStore(options.repo);
 }
 
 type NewOptions = {
@@ -1120,7 +1106,7 @@ function parseSourceKind(value: string): "human" | "agent" | "validation" | "rev
 if (import.meta.main) {
   runCli().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`mission: ${message}`);
+    console.error(`work: ${message}`);
     process.exitCode = 1;
   });
 }

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { minimatch } from "minimatch";
 import YAML from "yaml";
 import { appendJsonl, readJsonl } from "./jsonl.js";
-import { MISSION_ROOT, missionPaths } from "./paths.js";
+import { WORK_ROOT, workPaths } from "./paths.js";
 import { redactSecrets } from "./redaction.js";
 import {
   formatRunLog,
@@ -23,15 +23,15 @@ import {
   type EventRecord,
   type GitIsolation,
   GitIsolationSchema,
-  type MissionCheckpoint,
-  MissionCheckpointSchema,
-  type MissionPolicy,
-  MissionPolicySchema,
-  type MissionSpec,
-  MissionSpecSchema,
-  type MissionStatus,
-  type MissionTask,
-  MissionTaskSchema,
+  type WorkCheckpoint,
+  WorkCheckpointSchema,
+  type WorkPolicy,
+  WorkPolicySchema,
+  type WorkSpec,
+  WorkSpecSchema,
+  type WorkStatus,
+  type WorkTask,
+  WorkTaskSchema,
   type RequirementFinding,
   RequirementFindingSchema,
   type SupervisorSignal,
@@ -39,7 +39,7 @@ import {
   type ToolCallRecord,
 } from "./types.js";
 
-export type CreateMissionInput = {
+export type CreateWorkInput = {
   id?: string;
   goal: string;
   actor: string;
@@ -103,17 +103,17 @@ export type AddTaskInput = {
   actor: string;
   title: string;
   actorRole: string;
-  mutationMode: MissionTask["mutation_mode"];
+  mutationMode: WorkTask["mutation_mode"];
   dependsOn: string[];
   scopeAllow: string[];
   scopeDeny: string[];
   validation: string[];
 };
 
-export type MissionSummary = {
+export type WorkSummary = {
   id: string;
   goal: string;
-  status: MissionStatus;
+  status: WorkStatus;
   validation_commands: number;
   tasks: number;
   changes: {
@@ -130,12 +130,12 @@ export type SupervisorSignalRecord = SupervisorSignal & {
   time: string;
 };
 
-export type MissionMonitor = {
+export type WorkMonitor = {
   id: string;
-  status: MissionStatus;
-  active_tasks: MissionTask[];
-  ready_tasks: MissionTask[];
-  blocked_tasks: MissionTask[];
+  status: WorkStatus;
+  active_tasks: WorkTask[];
+  ready_tasks: WorkTask[];
+  blocked_tasks: WorkTask[];
   pending_changes: ChangeProposal[];
   findings: DoctorFinding[];
   recent_events: EventRecord[];
@@ -163,7 +163,7 @@ export type RollbackCheckResult = {
 };
 
 export type RequirementAnalysisResult = {
-  mission_id: string;
+  work_id: string;
   findings: RequirementFinding[];
   artifact: string;
 };
@@ -180,27 +180,27 @@ const DEFAULT_ACTORS = [
 const DEFAULT_WORKFLOW = ["research", "plan", "approve", "implement", "validate", "handoff"];
 const STUCK_TASK_MS = 30 * 60 * 1000;
 
-export class MissionStore {
+export class WorkStore {
   readonly repo: string;
 
   constructor(repo = process.cwd()) {
     this.repo = resolve(repo);
   }
 
-  paths(missionId: string) {
-    return missionPaths(this.repo, missionId);
+  paths(workId: string) {
+    return workPaths(this.repo, workId);
   }
 
-  async listMissionIds(): Promise<string[]> {
-    const root = join(this.repo, MISSION_ROOT);
+  async listWorkIds(): Promise<string[]> {
+    const root = join(this.repo, WORK_ROOT);
     try {
       const entries = await readdir(root, { withFileTypes: true });
       const ids: string[] = [];
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        const missionFile = join(root, entry.name, "mission.yaml");
+        const workFile = join(root, entry.name, "work.yaml");
         try {
-          await stat(missionFile);
+          await stat(workFile);
           ids.push(entry.name);
         } catch {
           // Ignore incomplete directories.
@@ -213,14 +213,14 @@ export class MissionStore {
     }
   }
 
-  async createMission(input: CreateMissionInput): Promise<string> {
+  async createWork(input: CreateWorkInput): Promise<string> {
     const now = utcNow();
     const stamp = now.replace(/[-:TZ]/g, "").slice(0, 14);
-    const missionId = input.id ?? `${stamp}-${slugify(input.goal)}`;
-    const paths = this.paths(missionId);
+    const workId = input.id ?? `${stamp}-${slugify(input.goal)}`;
+    const paths = this.paths(workId);
 
     if (await exists(paths.root)) {
-      throw new Error(`mission already exists: ${missionId}`);
+      throw new Error(`work already exists: ${workId}`);
     }
 
     await mkdir(paths.root, { recursive: true });
@@ -228,8 +228,8 @@ export class MissionStore {
     await mkdir(paths.changes, { recursive: true });
     await mkdir(paths.checkpoints, { recursive: true });
 
-    const spec: MissionSpec = {
-      id: missionId,
+    const spec: WorkSpec = {
+      id: workId,
       goal: input.goal,
       status: "draft",
       owner: input.actor,
@@ -241,30 +241,30 @@ export class MissionStore {
       actors: DEFAULT_ACTORS,
     };
 
-    await this.writeMission(spec);
-    await writeFile(paths.plan, "# Plan\n\nTBD: Run `mission plan`.\n", "utf8");
+    await this.writeWork(spec);
+    await writeFile(paths.plan, "# Plan\n\nTBD: Run `supermission plan`.\n", "utf8");
     await writeFile(
       paths.requirementsAnalysis,
-      "# Requirements Analysis\n\nTBD: Run `mission requirements check`.\n",
+      "# Requirements Analysis\n\nTBD: Run `supermission requirements check`.\n",
       "utf8",
     );
     await writeFile(paths.decisions, "# Decisions\n\nTBD: Record decisions here.\n", "utf8");
     await writeFile(paths.validationLog, "", "utf8");
-    await writeFile(paths.runLog, "# Run\n\nTBD: Run the mission with a runner.\n", "utf8");
+    await writeFile(paths.runLog, "# Run\n\nTBD: Run the work with a runner.\n", "utf8");
     await writeFile(paths.review, "# Review\n\nTBD: Record review findings here.\n", "utf8");
-    await writeFile(paths.monitor, "# Monitor\n\nTBD: Run `mission monitor`.\n", "utf8");
+    await writeFile(paths.monitor, "# Monitor\n\nTBD: Run `supermission monitor`.\n", "utf8");
     await writeFile(
       paths.scopeAudit,
-      "# Scope Audit\n\nTBD: Run `mission task audit-scope`.\n",
+      "# Scope Audit\n\nTBD: Run `supermission task audit-scope`.\n",
       "utf8",
     );
     await writeFile(paths.debug, "# Debug\n\nNo debug notes yet.\n", "utf8");
-    await writeFile(paths.handoff, "# Handoff\n\nTBD: Run `mission handoff`.\n", "utf8");
+    await writeFile(paths.handoff, "# Handoff\n\nTBD: Run `supermission handoff`.\n", "utf8");
     await writeFile(paths.patch, "", "utf8");
 
-    await this.writeTask(missionId, {
+    await this.writeTask(workId, {
       id: "task-001",
-      title: "Implement mission workflow",
+      title: "Implement work workflow",
       status: "ready",
       actor_role: "worker-agent",
       depends_on: [],
@@ -275,35 +275,35 @@ export class MissionStore {
       updated_at: now,
     });
 
-    await this.appendEvent(missionId, "mission.created", input.actor, { goal: input.goal });
-    await this.appendTelemetry(missionId, { metric: "mission.created", status: "draft" });
-    return missionId;
+    await this.appendEvent(workId, "work.created", input.actor, { goal: input.goal });
+    await this.appendTelemetry(workId, { metric: "work.created", status: "draft" });
+    return workId;
   }
 
-  async readMission(missionId: string): Promise<MissionSpec> {
-    const paths = this.paths(missionId);
-    const text = await readFile(paths.mission, "utf8").catch((error: unknown) => {
-      if (isNodeError(error, "ENOENT")) throw new Error(`unknown mission: ${missionId}`);
+  async readWork(workId: string): Promise<WorkSpec> {
+    const paths = this.paths(workId);
+    const text = await readFile(paths.work, "utf8").catch((error: unknown) => {
+      if (isNodeError(error, "ENOENT")) throw new Error(`unknown work: ${workId}`);
       throw error;
     });
-    return MissionSpecSchema.parse(YAML.parse(text));
+    return WorkSpecSchema.parse(YAML.parse(text));
   }
 
-  async readPolicy(): Promise<MissionPolicy> {
+  async readPolicy(): Promise<WorkPolicy> {
     try {
       const text = await readFile(this.paths("policy").policy, "utf8");
-      return MissionPolicySchema.parse(YAML.parse(text));
+      return WorkPolicySchema.parse(YAML.parse(text));
     } catch (error) {
       if (isNodeError(error, "ENOENT")) {
-        return MissionPolicySchema.parse({ validation_allowlist: [] });
+        return WorkPolicySchema.parse({ validation_allowlist: [] });
       }
       throw error;
     }
   }
 
-  async writePolicy(policy: MissionPolicy): Promise<MissionPolicy> {
-    const parsed = MissionPolicySchema.parse(policy);
-    await mkdir(join(this.repo, MISSION_ROOT), { recursive: true });
+  async writePolicy(policy: WorkPolicy): Promise<WorkPolicy> {
+    const parsed = WorkPolicySchema.parse(policy);
+    await mkdir(join(this.repo, WORK_ROOT), { recursive: true });
     await writeFile(this.paths("policy").policy, YAML.stringify(parsed), "utf8");
     return parsed;
   }
@@ -322,32 +322,32 @@ export class MissionStore {
 
   async writeRunnerConfig(config: RunnerConfig): Promise<RunnerConfig> {
     const parsed = RunnerConfigSchema.parse(config);
-    await mkdir(join(this.repo, MISSION_ROOT), { recursive: true });
+    await mkdir(join(this.repo, WORK_ROOT), { recursive: true });
     await writeFile(this.paths("runners").runners, YAML.stringify(parsed), "utf8");
     return parsed;
   }
 
-  async writeMission(spec: MissionSpec): Promise<void> {
-    const parsed = MissionSpecSchema.parse({ ...spec, updated_at: utcNow() });
-    await writeFile(this.paths(parsed.id).mission, YAML.stringify(parsed), "utf8");
+  async writeWork(spec: WorkSpec): Promise<void> {
+    const parsed = WorkSpecSchema.parse({ ...spec, updated_at: utcNow() });
+    await writeFile(this.paths(parsed.id).work, YAML.stringify(parsed), "utf8");
   }
 
   async updateStatus(
-    missionId: string,
-    status: MissionStatus,
+    workId: string,
+    status: WorkStatus,
     actor: string,
     reason?: string,
   ): Promise<void> {
-    const spec = await this.readMission(missionId);
+    const spec = await this.readWork(workId);
     if (spec.status === status) return;
     const previous = spec.status;
-    await this.writeMission({ ...spec, status });
-    await this.appendEvent(missionId, "mission.state.changed", actor, {
+    await this.writeWork({ ...spec, status });
+    await this.appendEvent(workId, "work.state.changed", actor, {
       from: previous,
       to: status,
       ...(reason ? { reason } : {}),
     });
-    await this.appendTelemetry(missionId, {
+    await this.appendTelemetry(workId, {
       metric: "state.changed",
       from: previous,
       to: status,
@@ -355,12 +355,12 @@ export class MissionStore {
   }
 
   async appendEvent(
-    missionId: string,
+    workId: string,
     type: string,
     actor: string,
     payload: Record<string, unknown> = {},
   ): Promise<void> {
-    const path = this.paths(missionId).events;
+    const path = this.paths(workId).events;
     await appendJsonl(path, {
       record_id: await nextRecordId(path, "event"),
       type,
@@ -370,8 +370,8 @@ export class MissionStore {
     });
   }
 
-  async appendTelemetry(missionId: string, payload: Omit<TelemetryRecord, "time">): Promise<void> {
-    const path = this.paths(missionId).telemetry;
+  async appendTelemetry(workId: string, payload: Omit<TelemetryRecord, "time">): Promise<void> {
+    const path = this.paths(workId).telemetry;
     await appendJsonl(path, {
       record_id: await nextRecordId(path, "telemetry"),
       time: utcNow(),
@@ -379,8 +379,8 @@ export class MissionStore {
     });
   }
 
-  async appendToolCall(missionId: string, payload: Omit<ToolCallRecord, "time">): Promise<void> {
-    const path = this.paths(missionId).toolCalls;
+  async appendToolCall(workId: string, payload: Omit<ToolCallRecord, "time">): Promise<void> {
+    const path = this.paths(workId).toolCalls;
     await appendJsonl(path, {
       record_id: await nextRecordId(path, "tool-call"),
       time: utcNow(),
@@ -388,52 +388,52 @@ export class MissionStore {
     });
   }
 
-  async appendSupervisorSignal(missionId: string, signal: SupervisorSignal): Promise<void> {
-    const path = this.paths(missionId).supervisor;
+  async appendSupervisorSignal(workId: string, signal: SupervisorSignal): Promise<void> {
+    const path = this.paths(workId).supervisor;
     await appendJsonl(path, {
       record_id: await nextRecordId(path, "signal"),
       time: utcNow(),
       ...signal,
     });
-    await this.appendEvent(missionId, "supervisor.signal", "supervisor-agent", {
+    await this.appendEvent(workId, "supervisor.signal", "supervisor-agent", {
       signal_type: signal.type,
       severity: signal.severity,
       message: signal.message,
     });
   }
 
-  async readEvents(missionId: string): Promise<EventRecord[]> {
-    return withRecordIds(await readJsonl<EventRecord>(this.paths(missionId).events), "event");
+  async readEvents(workId: string): Promise<EventRecord[]> {
+    return withRecordIds(await readJsonl<EventRecord>(this.paths(workId).events), "event");
   }
 
-  async readTelemetry(missionId: string): Promise<TelemetryRecord[]> {
+  async readTelemetry(workId: string): Promise<TelemetryRecord[]> {
     return withRecordIds(
-      await readJsonl<TelemetryRecord>(this.paths(missionId).telemetry),
+      await readJsonl<TelemetryRecord>(this.paths(workId).telemetry),
       "telemetry",
     );
   }
 
-  async analyzeRequirements(missionId: string, actor: string): Promise<RequirementAnalysisResult> {
-    const mission = await this.readMission(missionId);
+  async analyzeRequirements(workId: string, actor: string): Promise<RequirementAnalysisResult> {
+    const work = await this.readWork(workId);
     const findings = RequirementFindingSchema.array().parse(
-      findRequirementIssues(mission.acceptance, mission.validation_commands),
+      findRequirementIssues(work.acceptance, work.validation_commands),
     );
-    const text = formatRequirementsAnalysis(mission, actor, findings);
-    await writeFile(this.paths(missionId).requirementsAnalysis, text, "utf8");
-    await this.appendEvent(missionId, "requirements.analysis.created", actor, {
+    const text = formatRequirementsAnalysis(work, actor, findings);
+    await writeFile(this.paths(workId).requirementsAnalysis, text, "utf8");
+    await this.appendEvent(workId, "requirements.analysis.created", actor, {
       artifact: "requirements-analysis.md",
       findings: findings.length,
       blocking: findings.filter((finding) => finding.severity === "blocking").length,
       warning: findings.filter((finding) => finding.severity === "warning").length,
     });
-    await this.appendTelemetry(missionId, {
+    await this.appendTelemetry(workId, {
       metric: "requirements.analysis",
       findings: findings.length,
       blocking: findings.filter((finding) => finding.severity === "blocking").length,
       warning: findings.filter((finding) => finding.severity === "warning").length,
     });
     if (findings.length > 0) {
-      await this.appendSupervisorSignal(missionId, {
+      await this.appendSupervisorSignal(workId, {
         type: "requirements_quality",
         severity: findings.some((finding) => finding.severity === "blocking")
           ? "blocking"
@@ -441,41 +441,41 @@ export class MissionStore {
         message: `${findings.length} requirement quality finding(s) need clarification before implementation.`,
       });
     }
-    return { mission_id: missionId, findings, artifact: "requirements-analysis.md" };
+    return { work_id: workId, findings, artifact: "requirements-analysis.md" };
   }
 
-  async readToolCalls(missionId: string): Promise<ToolCallRecord[]> {
+  async readToolCalls(workId: string): Promise<ToolCallRecord[]> {
     return withRecordIds(
-      await readJsonl<ToolCallRecord>(this.paths(missionId).toolCalls),
+      await readJsonl<ToolCallRecord>(this.paths(workId).toolCalls),
       "tool-call",
     );
   }
 
-  async readSupervisorSignals(missionId: string): Promise<SupervisorSignalRecord[]> {
+  async readSupervisorSignals(workId: string): Promise<SupervisorSignalRecord[]> {
     return withRecordIds(
-      await readJsonl<SupervisorSignalRecord>(this.paths(missionId).supervisor),
+      await readJsonl<SupervisorSignalRecord>(this.paths(workId).supervisor),
       "signal",
     );
   }
 
-  async writeTask(missionId: string, task: MissionTask): Promise<void> {
-    const parsed = MissionTaskSchema.parse({ ...task, updated_at: utcNow() });
-    await mkdir(this.paths(missionId).tasks, { recursive: true });
+  async writeTask(workId: string, task: WorkTask): Promise<void> {
+    const parsed = WorkTaskSchema.parse({ ...task, updated_at: utcNow() });
+    await mkdir(this.paths(workId).tasks, { recursive: true });
     await writeFile(
-      join(this.paths(missionId).tasks, `${parsed.id}.yaml`),
+      join(this.paths(workId).tasks, `${parsed.id}.yaml`),
       YAML.stringify(parsed),
       "utf8",
     );
   }
 
-  async addTask(missionId: string, input: AddTaskInput): Promise<MissionTask> {
-    await this.readMission(missionId);
+  async addTask(workId: string, input: AddTaskInput): Promise<WorkTask> {
+    await this.readWork(workId);
     for (const dependency of input.dependsOn) {
-      await this.readTask(missionId, dependency);
+      await this.readTask(workId, dependency);
     }
     const now = utcNow();
-    const task: MissionTask = {
-      id: await this.nextTaskId(missionId),
+    const task: WorkTask = {
+      id: await this.nextTaskId(workId),
       title: input.title,
       status: input.dependsOn.length > 0 ? "pending" : "ready",
       actor_role: input.actorRole,
@@ -489,8 +489,8 @@ export class MissionStore {
       created_at: now,
       updated_at: now,
     };
-    await this.writeTask(missionId, task);
-    await this.appendEvent(missionId, "task.created", input.actor, {
+    await this.writeTask(workId, task);
+    await this.appendEvent(workId, "task.created", input.actor, {
       task: task.id,
       mutation_mode: task.mutation_mode,
       actor_role: task.actor_role,
@@ -498,41 +498,41 @@ export class MissionStore {
     return task;
   }
 
-  async readTask(missionId: string, taskId: string): Promise<MissionTask> {
-    const path = join(this.paths(missionId).tasks, `${taskId}.yaml`);
+  async readTask(workId: string, taskId: string): Promise<WorkTask> {
+    const path = join(this.paths(workId).tasks, `${taskId}.yaml`);
     const text = await readFile(path, "utf8").catch((error: unknown) => {
       if (isNodeError(error, "ENOENT")) throw new Error(`unknown task: ${taskId}`);
       throw error;
     });
-    return MissionTaskSchema.parse(YAML.parse(text));
+    return WorkTaskSchema.parse(YAML.parse(text));
   }
 
   async setTaskStatus(
-    missionId: string,
+    workId: string,
     taskId: string,
-    status: MissionTask["status"],
+    status: WorkTask["status"],
     actor: string,
-  ): Promise<MissionTask> {
-    const task = await this.readTask(missionId, taskId);
+  ): Promise<WorkTask> {
+    const task = await this.readTask(workId, taskId);
     if (status === "running") {
-      await this.ensureTaskCanRun(missionId, task);
+      await this.ensureTaskCanRun(workId, task);
     }
-    const updated: MissionTask = { ...task, status, updated_at: utcNow() };
-    await this.writeTask(missionId, updated);
-    await this.appendEvent(missionId, "task.status.changed", actor, {
+    const updated: WorkTask = { ...task, status, updated_at: utcNow() };
+    await this.writeTask(workId, updated);
+    await this.appendEvent(workId, "task.status.changed", actor, {
       task: taskId,
       from: task.status,
       to: status,
     });
     if (status === "done") {
-      await this.refreshReadyTasks(missionId, actor);
+      await this.refreshReadyTasks(workId, actor);
     }
     return updated;
   }
 
-  async ensureTaskCanRun(missionId: string, task: MissionTask): Promise<void> {
+  async ensureTaskCanRun(workId: string, task: WorkTask): Promise<void> {
     if (task.mutation_mode !== "linear_write") return;
-    const tasks = await this.listTasks(missionId);
+    const tasks = await this.listTasks(workId);
     const runningLinear = tasks.find(
       (candidate) =>
         candidate.id !== task.id &&
@@ -542,7 +542,7 @@ export class MissionStore {
     if (!runningLinear) return;
 
     const message = `linear_write task ${runningLinear.id} is already running`;
-    await this.appendSupervisorSignal(missionId, {
+    await this.appendSupervisorSignal(workId, {
       type: "linear_mutation_conflict",
       severity: "blocking",
       message,
@@ -550,10 +550,10 @@ export class MissionStore {
     throw new Error(message);
   }
 
-  async refreshReadyTasks(missionId: string, actor: string): Promise<MissionTask[]> {
-    const tasks = await this.listTasks(missionId);
+  async refreshReadyTasks(workId: string, actor: string): Promise<WorkTask[]> {
+    const tasks = await this.listTasks(workId);
     const byId = new Map(tasks.map((task) => [task.id, task]));
-    const updated: MissionTask[] = [];
+    const updated: WorkTask[] = [];
 
     for (const task of tasks) {
       if (task.status !== "pending" || task.depends_on.length === 0) continue;
@@ -562,9 +562,9 @@ export class MissionStore {
       });
       if (!dependenciesDone) continue;
 
-      const ready: MissionTask = { ...task, status: "ready", updated_at: utcNow() };
-      await this.writeTask(missionId, ready);
-      await this.appendEvent(missionId, "task.unblocked", actor, {
+      const ready: WorkTask = { ...task, status: "ready", updated_at: utcNow() };
+      await this.writeTask(workId, ready);
+      await this.appendEvent(workId, "task.unblocked", actor, {
         task: task.id,
         dependencies: task.depends_on,
       });
@@ -574,12 +574,8 @@ export class MissionStore {
     return updated;
   }
 
-  async auditTaskScope(
-    missionId: string,
-    taskId: string,
-    actor: string,
-  ): Promise<ScopeAuditResult> {
-    const task = await this.readTask(missionId, taskId);
+  async auditTaskScope(workId: string, taskId: string, actor: string): Promise<ScopeAuditResult> {
+    const task = await this.readTask(workId, taskId);
     const changedFiles = await changedGitFiles(this.repo);
     const violations: ScopeAuditResult["violations"] = [];
     for (const file of changedFiles) {
@@ -600,9 +596,9 @@ export class MissionStore {
       changed_files: changedFiles,
       violations,
     };
-    await this.writeScopeAudit(missionId, actor, result);
+    await this.writeScopeAudit(workId, actor, result);
     if (violations.length > 0) {
-      await this.appendSupervisorSignal(missionId, {
+      await this.appendSupervisorSignal(workId, {
         type: "scope_drift",
         severity: "blocking",
         message: `${violations.length} changed file(s) are outside task ${task.id} scope.`,
@@ -611,15 +607,11 @@ export class MissionStore {
     return result;
   }
 
-  async writeScopeAudit(
-    missionId: string,
-    actor: string,
-    result: ScopeAuditResult,
-  ): Promise<string> {
+  async writeScopeAudit(workId: string, actor: string, result: ScopeAuditResult): Promise<string> {
     const lines = [
       "# Scope Audit",
       "",
-      `Mission: ${missionId}`,
+      `Work: ${workId}`,
       `Task: ${result.task}`,
       `Auditor: ${actor}`,
       `Created at: ${utcNow()}`,
@@ -637,8 +629,8 @@ export class MissionStore {
         : ["- None"]),
     ];
     const text = `${lines.join("\n")}\n`;
-    await writeFile(this.paths(missionId).scopeAudit, text, "utf8");
-    await this.appendEvent(missionId, "scope.audit.created", actor, {
+    await writeFile(this.paths(workId).scopeAudit, text, "utf8");
+    await this.appendEvent(workId, "scope.audit.created", actor, {
       artifact: "scope-audit.md",
       task: result.task,
       violations: result.violations.length,
@@ -646,8 +638,8 @@ export class MissionStore {
     return text;
   }
 
-  async nextTaskId(missionId: string): Promise<string> {
-    const tasks = await this.listTasks(missionId);
+  async nextTaskId(workId: string): Promise<string> {
+    const tasks = await this.listTasks(workId);
     const nextNumber =
       tasks.reduce((max, task) => {
         const match = /^task-(\d+)$/.exec(task.id);
@@ -656,8 +648,8 @@ export class MissionStore {
     return `task-${String(nextNumber).padStart(3, "0")}`;
   }
 
-  async listTasks(missionId: string): Promise<MissionTask[]> {
-    const paths = this.paths(missionId);
+  async listTasks(workId: string): Promise<WorkTask[]> {
+    const paths = this.paths(workId);
     try {
       const files = await readdir(paths.tasks);
       const tasks = await Promise.all(
@@ -666,7 +658,7 @@ export class MissionStore {
           .sort()
           .map(async (file) => {
             const text = await readFile(join(paths.tasks, file), "utf8");
-            return MissionTaskSchema.parse(YAML.parse(text));
+            return WorkTaskSchema.parse(YAML.parse(text));
           }),
       );
       return tasks;
@@ -676,10 +668,10 @@ export class MissionStore {
     }
   }
 
-  async proposeChange(missionId: string, input: ProposeChangeInput): Promise<ChangeProposal> {
-    const spec = await this.readMission(missionId);
+  async proposeChange(workId: string, input: ProposeChangeInput): Promise<ChangeProposal> {
+    const spec = await this.readWork(workId);
     const now = utcNow();
-    const id = await this.nextChangeId(missionId);
+    const id = await this.nextChangeId(workId);
     const proposal: ChangeProposal = {
       id,
       status: "proposed",
@@ -699,26 +691,26 @@ export class MissionStore {
       updated_at: now,
     };
 
-    await this.writeChange(missionId, proposal);
-    await this.appendEvent(missionId, "change.proposed", input.actor, {
+    await this.writeChange(workId, proposal);
+    await this.appendEvent(workId, "change.proposed", input.actor, {
       change: id,
       change_type: proposal.type,
       risk: proposal.risk,
       requires_gate: proposal.requires_gate,
     });
-    await this.updateStatus(missionId, "needs_decision", input.actor, `change proposed: ${id}`);
+    await this.updateStatus(workId, "needs_decision", input.actor, `change proposed: ${id}`);
     return proposal;
   }
 
-  async listChanges(missionId: string): Promise<ChangeProposal[]> {
-    const paths = this.paths(missionId);
+  async listChanges(workId: string): Promise<ChangeProposal[]> {
+    const paths = this.paths(workId);
     try {
       const files = await readdir(paths.changes);
       const changes = await Promise.all(
         files
           .filter((file) => file.endsWith(".yaml"))
           .sort()
-          .map(async (file) => this.readChange(missionId, file.replace(/\.yaml$/, ""))),
+          .map(async (file) => this.readChange(workId, file.replace(/\.yaml$/, ""))),
       );
       return changes;
     } catch (error) {
@@ -727,8 +719,8 @@ export class MissionStore {
     }
   }
 
-  async nextChangeId(missionId: string): Promise<string> {
-    const changes = await this.listChanges(missionId);
+  async nextChangeId(workId: string): Promise<string> {
+    const changes = await this.listChanges(workId);
     const nextNumber =
       changes.reduce((max, change) => {
         const match = /^change-(\d+)$/.exec(change.id);
@@ -737,8 +729,8 @@ export class MissionStore {
     return `change-${String(nextNumber).padStart(3, "0")}`;
   }
 
-  async readChange(missionId: string, changeId: string): Promise<ChangeProposal> {
-    const path = join(this.paths(missionId).changes, `${changeId}.yaml`);
+  async readChange(workId: string, changeId: string): Promise<ChangeProposal> {
+    const path = join(this.paths(workId).changes, `${changeId}.yaml`);
     const text = await readFile(path, "utf8").catch((error: unknown) => {
       if (isNodeError(error, "ENOENT")) {
         throw new Error(`unknown change: ${changeId}`);
@@ -749,13 +741,13 @@ export class MissionStore {
   }
 
   async decideChange(
-    missionId: string,
+    workId: string,
     changeId: string,
     status: Extract<ChangeStatus, "approved" | "rejected" | "deferred" | "split">,
     actor: string,
     reason?: string,
   ): Promise<ChangeProposal> {
-    const change = await this.readChange(missionId, changeId);
+    const change = await this.readChange(workId, changeId);
     if (change.status !== "proposed") {
       throw new Error(`change is already ${change.status}: ${changeId}`);
     }
@@ -770,27 +762,27 @@ export class MissionStore {
       },
       updated_at: utcNow(),
     };
-    await this.writeChange(missionId, decided);
-    await this.appendEvent(missionId, `change.${status}`, actor, {
+    await this.writeChange(workId, decided);
+    await this.appendEvent(workId, `change.${status}`, actor, {
       change: changeId,
       reason: reason ?? "",
     });
 
     if (status === "approved") {
-      await this.appendEvent(missionId, "gate.approved", actor, {
+      await this.appendEvent(workId, "gate.approved", actor, {
         gate: change.requires_gate,
         change: changeId,
         reason: reason ?? "",
       });
       await this.updateStatus(
-        missionId,
+        workId,
         change.previous_status,
         actor,
         `change approved: ${changeId}`,
       );
     } else if (status === "rejected") {
       await this.updateStatus(
-        missionId,
+        workId,
         change.previous_status,
         actor,
         `change rejected: ${changeId}`,
@@ -801,11 +793,11 @@ export class MissionStore {
   }
 
   async applyChange(
-    missionId: string,
+    workId: string,
     changeId: string,
     input: ApplyChangeInput,
   ): Promise<AppliedChangeResult> {
-    const change = await this.readChange(missionId, changeId);
+    const change = await this.readChange(workId, changeId);
     if (change.status !== "approved") {
       throw new Error(`change must be approved before apply: ${changeId}`);
     }
@@ -816,10 +808,10 @@ export class MissionStore {
       input.workflowSteps.length === 0 &&
       input.planNotes.length === 0
     ) {
-      throw new Error("change apply requires at least one mission or plan update");
+      throw new Error("change apply requires at least one work or plan update");
     }
 
-    const spec = await this.readMission(missionId);
+    const spec = await this.readWork(workId);
     const acceptance = appendUnique(spec.acceptance, input.acceptance);
     const validationCommands = appendUnique(spec.validation_commands, input.validationCommands);
     const workflow = appendUnique(spec.workflow, input.workflowSteps);
@@ -836,7 +828,7 @@ export class MissionStore {
       added.workflow.length === 0 &&
       added.plan_notes.length === 0
     ) {
-      throw new Error("change apply did not add any new mission or plan entries");
+      throw new Error("change apply did not add any new work or plan entries");
     }
 
     if (
@@ -844,7 +836,7 @@ export class MissionStore {
       added.validation_commands.length > 0 ||
       added.workflow.length > 0
     ) {
-      await this.writeMission({
+      await this.writeWork({
         ...spec,
         acceptance: acceptance.values,
         validation_commands: validationCommands.values,
@@ -853,7 +845,7 @@ export class MissionStore {
     }
 
     if (added.plan_notes.length > 0) {
-      await this.appendPlanNotes(missionId, changeId, input.actor, added.plan_notes);
+      await this.appendPlanNotes(workId, changeId, input.actor, added.plan_notes);
     }
 
     const applied: ChangeProposal = {
@@ -867,9 +859,9 @@ export class MissionStore {
       },
       updated_at: utcNow(),
     };
-    await this.writeChange(missionId, applied);
-    await this.appendDecision(missionId, changeId, input.actor, added, input.note);
-    await this.appendEvent(missionId, "change.applied", input.actor, {
+    await this.writeChange(workId, applied);
+    await this.appendDecision(workId, changeId, input.actor, added, input.note);
+    await this.appendEvent(workId, "change.applied", input.actor, {
       change: changeId,
       acceptance_added: added.acceptance.length,
       validation_commands_added: added.validation_commands.length,
@@ -879,18 +871,18 @@ export class MissionStore {
     return { change: applied, added };
   }
 
-  async writeChange(missionId: string, change: ChangeProposal): Promise<void> {
+  async writeChange(workId: string, change: ChangeProposal): Promise<void> {
     const parsed = ChangeProposalSchema.parse({ ...change, updated_at: utcNow() });
-    await mkdir(this.paths(missionId).changes, { recursive: true });
+    await mkdir(this.paths(workId).changes, { recursive: true });
     await writeFile(
-      join(this.paths(missionId).changes, `${parsed.id}.yaml`),
+      join(this.paths(workId).changes, `${parsed.id}.yaml`),
       YAML.stringify(parsed),
       "utf8",
     );
   }
 
   async appendDecision(
-    missionId: string,
+    workId: string,
     changeId: string,
     actor: string,
     added: AppliedChangeResult["added"],
@@ -904,18 +896,18 @@ export class MissionStore {
       `Applied at: ${utcNow()}`,
       ...(note ? [`Note: ${note}`] : []),
       "",
-      "### Mission Spec Updates",
+      "### Work Spec Updates",
       "",
       ...formatAddedList("Acceptance", added.acceptance),
       ...formatAddedList("Validation commands", added.validation_commands),
       ...formatAddedList("Workflow steps", added.workflow),
       ...formatAddedList("Plan notes", added.plan_notes),
     ];
-    await appendFile(this.paths(missionId).decisions, `${lines.join("\n")}\n`, "utf8");
+    await appendFile(this.paths(workId).decisions, `${lines.join("\n")}\n`, "utf8");
   }
 
   async appendPlanNotes(
-    missionId: string,
+    workId: string,
     changeId: string,
     actor: string,
     notes: string[],
@@ -929,11 +921,11 @@ export class MissionStore {
       "",
       ...notes.map((note) => `- ${note}`),
     ];
-    await appendFile(this.paths(missionId).plan, `${lines.join("\n")}\n`, "utf8");
+    await appendFile(this.paths(workId).plan, `${lines.join("\n")}\n`, "utf8");
   }
 
-  async writePlan(missionId: string, actor: string, note?: string): Promise<void> {
-    const spec = await this.readMission(missionId);
+  async writePlan(workId: string, actor: string, note?: string): Promise<void> {
+    const spec = await this.readWork(workId);
     const lines = [
       "# Plan",
       "",
@@ -941,7 +933,7 @@ export class MissionStore {
       "",
       "## Steps",
       "",
-      "1. Review goal, acceptance criteria, mission scope, and existing repo context.",
+      "1. Review goal, acceptance criteria, work scope, and existing repo context.",
       "2. Use the default task ledger to keep implementation work bounded.",
       "3. Implement the smallest change that satisfies acceptance criteria.",
       "4. Run validation and record stdout/stderr.",
@@ -958,43 +950,43 @@ export class MissionStore {
         : ["- TBD"]),
       ...(note ? ["", "## Planning Note", "", note] : []),
     ];
-    await writeFile(this.paths(missionId).plan, `${lines.join("\n")}\n`, "utf8");
-    await this.appendEvent(missionId, "plan.proposed", actor, { artifact: "plan.md" });
-    await this.updateStatus(missionId, "planned", actor);
+    await writeFile(this.paths(workId).plan, `${lines.join("\n")}\n`, "utf8");
+    await this.appendEvent(workId, "plan.proposed", actor, { artifact: "plan.md" });
+    await this.updateStatus(workId, "planned", actor);
   }
 
   async approve(
-    missionId: string,
+    workId: string,
     actor: string,
     gate = "approve_plan",
     reason?: string,
   ): Promise<void> {
     if (gate === "approve_plan") {
-      await this.requireMissionStatus(missionId, actor, "approve_plan", ["planned"]);
+      await this.requireWorkStatus(workId, actor, "approve_plan", ["planned"]);
     }
-    await this.appendEvent(missionId, "gate.approved", actor, { gate, reason: reason ?? "" });
+    await this.appendEvent(workId, "gate.approved", actor, { gate, reason: reason ?? "" });
     if (gate === "approve_plan") {
-      await this.updateStatus(missionId, "approved", actor);
+      await this.updateStatus(workId, "approved", actor);
     }
   }
 
-  async beginRun(missionId: string, actor: string): Promise<MissionSpec> {
-    const spec = await this.requireMissionStatus(missionId, actor, "run", [
+  async beginRun(workId: string, actor: string): Promise<WorkSpec> {
+    const spec = await this.requireWorkStatus(workId, actor, "run", [
       "approved",
       "needs_review",
       "failed",
       "blocked",
     ]);
-    await this.updateStatus(missionId, "running", actor);
+    await this.updateStatus(workId, "running", actor);
     return spec;
   }
 
-  async recordRun(missionId: string, actor: string, note?: string): Promise<void> {
-    await this.beginRun(missionId, actor);
+  async recordRun(workId: string, actor: string, note?: string): Promise<void> {
+    await this.beginRun(workId, actor);
     const now = utcNow();
-    await this.writeRunLog(missionId, actor, {
+    await this.writeRunLog(workId, actor, {
       backend: "record",
-      command: "mission run --backend record",
+      command: "supermission run --backend record",
       prompt: note ?? "V0 sequential workflow placeholder.",
       response: note ?? "Implementation recorded externally.",
       started_at: now,
@@ -1004,29 +996,29 @@ export class MissionStore {
       stdout: "",
       stderr: "",
     });
-    await this.appendToolCall(missionId, {
+    await this.appendToolCall(workId, {
       actor,
-      tool: "mission.run",
+      tool: "work.run",
       input_summary: note ?? "V0 sequential workflow placeholder.",
       status: "recorded",
     });
-    await this.appendEvent(missionId, "agent.run.recorded", actor, { note: note ?? "" });
-    await this.updateStatus(missionId, "needs_review", actor);
+    await this.appendEvent(workId, "agent.run.recorded", actor, { note: note ?? "" });
+    await this.updateStatus(workId, "needs_review", actor);
   }
 
   async recordRunnerExecution(
-    missionId: string,
+    workId: string,
     actor: string,
     execution: RunnerExecution,
   ): Promise<void> {
-    await this.requireMissionStatus(missionId, actor, "run", [
+    await this.requireWorkStatus(workId, actor, "run", [
       "running",
       "needs_review",
       "failed",
       "blocked",
     ]);
-    await this.writeRunLog(missionId, actor, execution);
-    await this.appendToolCall(missionId, {
+    await this.writeRunLog(workId, actor, execution);
+    await this.appendToolCall(workId, {
       actor,
       tool: `runner.${execution.backend}`,
       footprint_stage: "run",
@@ -1042,7 +1034,7 @@ export class MissionStore {
       tokens_used: execution.tokensUsed ?? null,
       status: execution.exitCode === 0 ? "completed" : "failed",
     });
-    await this.appendTelemetry(missionId, {
+    await this.appendTelemetry(workId, {
       metric: "runner.executed",
       backend: execution.backend,
       exit_code: execution.exitCode,
@@ -1052,7 +1044,7 @@ export class MissionStore {
       stderr_chars: execution.stderr.length,
       response_chars: execution.response?.length ?? 0,
     });
-    await this.appendEvent(missionId, "runner.executed", actor, {
+    await this.appendEvent(workId, "runner.executed", actor, {
       backend: execution.backend,
       command: execution.command ?? "",
       artifact: "run.log",
@@ -1063,19 +1055,19 @@ export class MissionStore {
       tokens_used: execution.tokensUsed ?? null,
     });
     if (execution.exitCode === 0) {
-      await this.updateStatus(missionId, "needs_review", actor);
+      await this.updateStatus(workId, "needs_review", actor);
     } else {
-      await this.updateStatus(missionId, "failed", actor, "runner execution failed");
+      await this.updateStatus(workId, "failed", actor, "runner execution failed");
       await this.writeDebug(
-        missionId,
+        workId,
         actor,
         `Runner ${execution.backend} failed with exit code ${execution.exitCode}.`,
       );
     }
   }
 
-  async writeRunLog(missionId: string, actor: string, execution: RunnerExecution): Promise<string> {
-    const spec = await this.readMission(missionId);
+  async writeRunLog(workId: string, actor: string, execution: RunnerExecution): Promise<string> {
+    const spec = await this.readWork(workId);
     const policy = await this.readPolicy();
     const redactedExecution = {
       ...execution,
@@ -1092,21 +1084,21 @@ export class MissionStore {
       stderr: redactSecrets(execution.stderr, policy.redaction.patterns),
     };
     const text = formatRunLog({
-      missionId: spec.id,
+      workId: spec.id,
       goal: spec.goal,
       actor,
       execution: redactedExecution,
     });
-    await writeFile(this.paths(missionId).runLog, text, "utf8");
+    await writeFile(this.paths(workId).runLog, text, "utf8");
     return text;
   }
 
   async validate(
-    missionId: string,
+    workId: string,
     actor: string,
     options: ValidateOptions = {},
   ): Promise<ValidationResult> {
-    const spec = await this.readMission(missionId);
+    const spec = await this.readWork(workId);
     const policy = await this.readPolicy();
     const validationCommands =
       options.commands && options.commands.length > 0 ? options.commands : spec.validation_commands;
@@ -1115,16 +1107,16 @@ export class MissionStore {
 
     if (validationCommands.length === 0) {
       log.push("No validation commands configured.");
-      await writeFile(this.paths(missionId).validationLog, `${log.join("\n")}\n`, "utf8");
-      await this.appendSupervisorSignal(missionId, {
+      await writeFile(this.paths(workId).validationLog, `${log.join("\n")}\n`, "utf8");
+      await this.appendSupervisorSignal(workId, {
         type: "validation_missing",
         severity: "blocking",
         message: "No validation commands configured.",
       });
-      await this.appendEvent(missionId, "validation.blocked", actor, {
+      await this.appendEvent(workId, "validation.blocked", actor, {
         reason: "no validation commands",
       });
-      await this.updateStatus(missionId, "blocked", actor, "no validation commands");
+      await this.updateStatus(workId, "blocked", actor, "no validation commands");
       return { exitCode: 2, durationMs: Math.round(performance.now() - started) };
     }
 
@@ -1140,14 +1132,14 @@ export class MissionStore {
           `Reason: ${reason}`,
           "",
         );
-        await this.appendToolCall(missionId, {
+        await this.appendToolCall(workId, {
           actor,
           tool: "shell",
           command: redactSecrets(command, policy.redaction.patterns),
           status: "blocked",
           reason,
         });
-        await this.appendSupervisorSignal(missionId, {
+        await this.appendSupervisorSignal(workId, {
           type: "command_policy_blocked",
           severity: "blocking",
           message: reason,
@@ -1159,7 +1151,7 @@ export class MissionStore {
       const risk = classifyCommandRisk(command);
       const riskyCommandApproved =
         risk.risky && options.allowRisky
-          ? await this.hasApprovedGate(missionId, "approve_risky_command")
+          ? await this.hasApprovedGate(workId, "approve_risky_command")
           : false;
       if (risk.risky && (!options.allowRisky || !riskyCommandApproved)) {
         const blockReason = options.allowRisky
@@ -1172,10 +1164,10 @@ export class MissionStore {
           "",
           `Reason: ${blockReason}`,
           "",
-          "Use `mission approve --gate approve_risky_command` before `mission validate --allow-risky`.",
+          "Use `supermission approve --gate approve_risky_command` before `supermission validate --allow-risky`.",
           "",
         );
-        await this.appendToolCall(missionId, {
+        await this.appendToolCall(workId, {
           actor,
           tool: "shell",
           command: redactSecrets(command, policy.redaction.patterns),
@@ -1183,13 +1175,13 @@ export class MissionStore {
           reason: blockReason,
         });
         if (options.allowRisky) {
-          await this.appendSupervisorSignal(missionId, {
+          await this.appendSupervisorSignal(workId, {
             type: "gate_waiting",
             severity: "blocking",
             message: blockReason,
           });
         } else {
-          await this.appendSupervisorSignal(missionId, {
+          await this.appendSupervisorSignal(workId, {
             type: "risky_command_blocked",
             severity: "blocking",
             message: risk.reason,
@@ -1206,9 +1198,9 @@ export class MissionStore {
       const redactedCommand = redactSecrets(command, policy.redaction.patterns);
       const redactedStdout = redactSecrets(result.stdout, policy.redaction.patterns);
       const redactedStderr = redactSecrets(result.stderr, policy.redaction.patterns);
-      const previousToolCalls = await this.readToolCalls(missionId);
+      const previousToolCalls = await this.readToolCalls(workId);
 
-      await this.appendToolCall(missionId, {
+      await this.appendToolCall(workId, {
         actor,
         tool: "shell",
         command: redactedCommand,
@@ -1219,7 +1211,7 @@ export class MissionStore {
       });
       if (result.exitCode !== 0) {
         await this.recordRepeatedFailureSignal(
-          missionId,
+          workId,
           redactedCommand,
           result.exitCode,
           previousToolCalls,
@@ -1251,48 +1243,48 @@ export class MissionStore {
 
     const durationMs = Math.round(performance.now() - started);
     log.push(`Finished: ${utcNow()}`, `Total duration: ${durationMs}ms`, "");
-    await writeFile(this.paths(missionId).validationLog, log.join("\n"), "utf8");
-    await this.appendTelemetry(missionId, {
+    await writeFile(this.paths(workId).validationLog, log.join("\n"), "utf8");
+    await this.appendTelemetry(workId, {
       metric: "validation.completed",
       exit_code: exitCode,
       duration_ms: durationMs,
     });
 
     if (exitCode === 0) {
-      await this.appendEvent(missionId, "validation.passed", actor, { artifact: "validation.log" });
-      await this.updateStatus(missionId, "validated", actor);
+      await this.appendEvent(workId, "validation.passed", actor, { artifact: "validation.log" });
+      await this.updateStatus(workId, "validated", actor);
     } else if (exitCode === 3 || exitCode === 4) {
-      await this.appendEvent(missionId, "validation.blocked", actor, {
+      await this.appendEvent(workId, "validation.blocked", actor, {
         artifact: "validation.log",
         reason: exitCode === 3 ? "risky command blocked" : "command policy blocked",
       });
       await this.updateStatus(
-        missionId,
+        workId,
         "blocked",
         actor,
         exitCode === 3 ? "risky command blocked" : "command policy blocked",
       );
       await this.writeDebug(
-        missionId,
+        workId,
         actor,
         exitCode === 3
           ? "Validation blocked by risky command policy."
           : "Validation blocked by project command policy.",
       );
     } else {
-      await this.appendEvent(missionId, "validation.failed", actor, {
+      await this.appendEvent(workId, "validation.failed", actor, {
         artifact: "validation.log",
         exit_code: exitCode,
       });
-      await this.updateStatus(missionId, "failed", actor, "validation failed");
-      await this.writeDebug(missionId, actor, `Validation failed with exit code ${exitCode}.`);
+      await this.updateStatus(workId, "failed", actor, "validation failed");
+      await this.writeDebug(workId, actor, `Validation failed with exit code ${exitCode}.`);
     }
 
     return { exitCode, durationMs };
   }
 
   async recordRepeatedFailureSignal(
-    missionId: string,
+    workId: string,
     command: string,
     exitCode: number,
     previousToolCalls: ToolCallRecord[],
@@ -1302,26 +1294,26 @@ export class MissionStore {
     });
     if (previousFailures.length === 0) return;
 
-    const signals = await this.readSupervisorSignals(missionId);
+    const signals = await this.readSupervisorSignals(workId);
     const alreadyRecorded = signals.some((signal) => {
       return signal.type === "repeated_failure" && signal.message.includes(command);
     });
     if (alreadyRecorded) return;
 
-    await this.appendSupervisorSignal(missionId, {
+    await this.appendSupervisorSignal(workId, {
       type: "repeated_failure",
       severity: "blocking",
       message: `Validation command failed repeatedly (${previousFailures.length + 1} attempts, latest exit ${exitCode}): ${command}`,
     });
   }
 
-  async writeDebug(missionId: string, actor: string, reason?: string): Promise<void> {
-    const spec = await this.readMission(missionId);
-    const recent = (await this.readEvents(missionId)).slice(-8);
+  async writeDebug(workId: string, actor: string, reason?: string): Promise<void> {
+    const spec = await this.readWork(workId);
+    const recent = (await this.readEvents(workId)).slice(-8);
     const lines = [
       "# Debug",
       "",
-      `Mission: ${missionId}`,
+      `Work: ${workId}`,
       `Status: ${spec.status}`,
       `Reason: ${reason ?? "No failure reason recorded."}`,
       "",
@@ -1334,31 +1326,31 @@ export class MissionStore {
       "- Decide whether this failure is implementation, environment, or acceptance related.",
       "- Decide whether this should become a change proposal.",
     ];
-    await writeFile(this.paths(missionId).debug, `${lines.join("\n")}\n`, "utf8");
-    await this.appendEvent(missionId, "debug.updated", actor, { artifact: "debug.md" });
+    await writeFile(this.paths(workId).debug, `${lines.join("\n")}\n`, "utf8");
+    await this.appendEvent(workId, "debug.updated", actor, { artifact: "debug.md" });
   }
 
-  async hasApprovedGate(missionId: string, gate: string): Promise<boolean> {
-    const events = await this.readEvents(missionId);
+  async hasApprovedGate(workId: string, gate: string): Promise<boolean> {
+    const events = await this.readEvents(workId);
     return events.some((event) => event.type === "gate.approved" && event.gate === gate);
   }
 
-  async requireMissionStatus(
-    missionId: string,
+  async requireWorkStatus(
+    workId: string,
     actor: string,
     action: string,
-    allowed: MissionStatus[],
-  ): Promise<MissionSpec> {
-    const spec = await this.readMission(missionId);
+    allowed: WorkStatus[],
+  ): Promise<WorkSpec> {
+    const spec = await this.readWork(workId);
     if (allowed.includes(spec.status)) return spec;
 
-    const message = `${action} requires mission status ${formatAllowedStatuses(allowed)}; current status is ${spec.status}`;
-    await this.appendSupervisorSignal(missionId, {
+    const message = `${action} requires work status ${formatAllowedStatuses(allowed)}; current status is ${spec.status}`;
+    await this.appendSupervisorSignal(workId, {
       type: "gate_waiting",
       severity: "blocking",
       message,
     });
-    await this.appendEvent(missionId, "workflow.blocked", actor, {
+    await this.appendEvent(workId, "workflow.blocked", actor, {
       action,
       status: spec.status,
       allowed,
@@ -1366,13 +1358,13 @@ export class MissionStore {
     throw new Error(message);
   }
 
-  async monitorMission(missionId: string): Promise<MissionMonitor> {
-    const spec = await this.readMission(missionId);
-    const tasks = await this.listTasks(missionId);
-    const changes = await this.listChanges(missionId);
-    const findings = await this.diagnoseMission(missionId);
-    const events = await this.readEvents(missionId);
-    const signals = await this.readSupervisorSignals(missionId);
+  async monitorWork(workId: string): Promise<WorkMonitor> {
+    const spec = await this.readWork(workId);
+    const tasks = await this.listTasks(workId);
+    const changes = await this.listChanges(workId);
+    const findings = await this.diagnoseWork(workId);
+    const events = await this.readEvents(workId);
+    const signals = await this.readSupervisorSignals(workId);
     return {
       id: spec.id,
       status: spec.status,
@@ -1387,12 +1379,12 @@ export class MissionStore {
     };
   }
 
-  async writeMonitor(missionId: string, actor: string): Promise<string> {
-    const monitor = await this.monitorMission(missionId);
+  async writeMonitor(workId: string, actor: string): Promise<string> {
+    const monitor = await this.monitorWork(workId);
     const lines = [
       "# Monitor",
       "",
-      `Mission: ${monitor.id}`,
+      `Work: ${monitor.id}`,
       `Status: ${monitor.status}`,
       `Generated by: ${actor}`,
       `Generated at: ${utcNow()}`,
@@ -1440,32 +1432,32 @@ export class MissionStore {
       ...monitor.recent_events.map((event) => `- ${event.time} ${event.type} actor=${event.actor}`),
     ];
     const text = `${lines.join("\n")}\n`;
-    await writeFile(this.paths(missionId).monitor, text, "utf8");
-    await this.appendEvent(missionId, "monitor.updated", actor, { artifact: "monitor.md" });
+    await writeFile(this.paths(workId).monitor, text, "utf8");
+    await this.appendEvent(workId, "monitor.updated", actor, { artifact: "monitor.md" });
     return text;
   }
 
-  async writeHandoff(missionId: string, actor: string, complete = true): Promise<void> {
-    const spec = await this.readMission(missionId);
+  async writeHandoff(workId: string, actor: string, complete = true): Promise<void> {
+    const spec = await this.readWork(workId);
     if (complete && spec.status !== "validated" && spec.status !== "completed") {
-      const message = `handoff completion requires mission status validated; current status is ${spec.status}`;
-      await this.appendSupervisorSignal(missionId, {
+      const message = `handoff completion requires work status validated; current status is ${spec.status}`;
+      await this.appendSupervisorSignal(workId, {
         type: "gate_waiting",
         severity: "blocking",
         message,
       });
-      await this.appendEvent(missionId, "workflow.blocked", actor, {
+      await this.appendEvent(workId, "workflow.blocked", actor, {
         action: "handoff",
         status: spec.status,
         allowed: ["validated"],
       });
       throw new Error(message);
     }
-    const events = await this.readEvents(missionId);
+    const events = await this.readEvents(workId);
     const lines = [
       "# Handoff",
       "",
-      `Mission: ${missionId}`,
+      `Work: ${workId}`,
       `Goal: ${spec.goal}`,
       `Status: ${spec.status}`,
       "",
@@ -1486,22 +1478,22 @@ export class MissionStore {
       "",
       ...events.map((event) => `- ${event.time} ${event.type} actor=${event.actor}`),
     ];
-    await writeFile(this.paths(missionId).handoff, `${lines.join("\n")}\n`, "utf8");
-    await this.appendEvent(missionId, "handoff.created", actor, { artifact: "handoff.md" });
+    await writeFile(this.paths(workId).handoff, `${lines.join("\n")}\n`, "utf8");
+    await this.appendEvent(workId, "handoff.created", actor, { artifact: "handoff.md" });
     if (complete && spec.status === "validated") {
-      await this.updateStatus(missionId, "completed", actor);
+      await this.updateStatus(workId, "completed", actor);
     }
   }
 
-  async writeReview(missionId: string, actor: string): Promise<string> {
-    const spec = await this.readMission(missionId);
-    const findings = await this.diagnoseMission(missionId);
-    const checkpoints = await this.listCheckpoints(missionId);
-    const changes = await this.listChanges(missionId);
+  async writeReview(workId: string, actor: string): Promise<string> {
+    const spec = await this.readWork(workId);
+    const findings = await this.diagnoseWork(workId);
+    const checkpoints = await this.listCheckpoints(workId);
+    const changes = await this.listChanges(workId);
     const lines = [
       "# Review",
       "",
-      `Mission: ${missionId}`,
+      `Work: ${workId}`,
       `Goal: ${spec.goal}`,
       `Status: ${spec.status}`,
       `Reviewer: ${actor}`,
@@ -1509,7 +1501,7 @@ export class MissionStore {
       "",
       "## Review Focus",
       "",
-      "- Intent: Did the mission solve the right problem?",
+      "- Intent: Did the work solve the right problem?",
       "- Scope: Did changes stay within expected boundaries?",
       "- Acceptance: Are acceptance criteria complete and satisfied?",
       "- Validation: Is evidence sufficient?",
@@ -1540,7 +1532,7 @@ export class MissionStore {
       "",
       "- [ ] Approve",
       "- [ ] Request changes",
-      "- [ ] Split mission",
+      "- [ ] Split work",
       "- [ ] Block completion",
       "",
       "## Notes",
@@ -1548,26 +1540,26 @@ export class MissionStore {
       "TBD: Add human review notes.",
     ];
     const text = `${lines.join("\n")}\n`;
-    await writeFile(this.paths(missionId).review, text, "utf8");
-    await this.appendEvent(missionId, "review.created", actor, { artifact: "review.md" });
+    await writeFile(this.paths(workId).review, text, "utf8");
+    await this.appendEvent(workId, "review.created", actor, { artifact: "review.md" });
     return text;
   }
 
   async captureDiff(
-    missionId: string,
+    workId: string,
     actor: string,
     options: PatchCaptureOptions = {},
   ): Promise<string> {
-    const scoped = await this.capturePatchText(missionId, actor, options);
-    await writeFile(this.paths(missionId).patch, scoped.diff, "utf8");
-    await this.appendEvent(missionId, "diff.captured", actor, {
+    const scoped = await this.capturePatchText(workId, actor, options);
+    await writeFile(this.paths(workId).patch, scoped.diff, "utf8");
+    await this.appendEvent(workId, "diff.captured", actor, {
       artifact: "patch.diff",
       bytes: Buffer.byteLength(scoped.diff),
       ...(scoped.taskId ? { task: scoped.taskId } : {}),
       ...(scoped.taskId ? { scoped_files: scoped.files.length } : {}),
       ...(scoped.taskId ? { scope_violations: scoped.violations } : {}),
     });
-    await this.appendTelemetry(missionId, {
+    await this.appendTelemetry(workId, {
       metric: "diff.captured",
       bytes: Buffer.byteLength(scoped.diff),
       ...(scoped.taskId ? { task: scoped.taskId } : {}),
@@ -1578,19 +1570,19 @@ export class MissionStore {
   }
 
   async createCheckpoint(
-    missionId: string,
+    workId: string,
     actor: string,
     label: string,
     options: PatchCaptureOptions = {},
-  ): Promise<MissionCheckpoint> {
+  ): Promise<WorkCheckpoint> {
     const now = utcNow();
-    const id = await this.nextCheckpointId(missionId);
+    const id = await this.nextCheckpointId(workId);
     const patchFile = `${id}.patch`;
-    const scoped = await this.capturePatchText(missionId, actor, options);
+    const scoped = await this.capturePatchText(workId, actor, options);
     const baseRef = await gitOutput(this.repo, ["rev-parse", "--short", "HEAD"]).catch(
       () => "unknown",
     );
-    const checkpoint: MissionCheckpoint = {
+    const checkpoint: WorkCheckpoint = {
       id,
       label,
       actor,
@@ -1598,15 +1590,15 @@ export class MissionStore {
       patch: patchFile,
       created_at: now,
     };
-    const paths = this.paths(missionId);
+    const paths = this.paths(workId);
     await mkdir(paths.checkpoints, { recursive: true });
     await writeFile(join(paths.checkpoints, patchFile), scoped.diff, "utf8");
     await writeFile(
       join(paths.checkpoints, `${id}.yaml`),
-      YAML.stringify(MissionCheckpointSchema.parse(checkpoint)),
+      YAML.stringify(WorkCheckpointSchema.parse(checkpoint)),
       "utf8",
     );
-    await this.appendEvent(missionId, "checkpoint.created", actor, {
+    await this.appendEvent(workId, "checkpoint.created", actor, {
       checkpoint: id,
       label,
       patch: `checkpoints/${patchFile}`,
@@ -1619,7 +1611,7 @@ export class MissionStore {
   }
 
   async capturePatchText(
-    missionId: string,
+    workId: string,
     actor: string,
     options: PatchCaptureOptions,
   ): Promise<{ diff: string; taskId?: string; files: string[]; violations: number }> {
@@ -1627,7 +1619,7 @@ export class MissionStore {
       return { diff: await captureWorkspaceDiff(this.repo), files: [], violations: 0 };
     }
 
-    const audit = await this.auditTaskScope(missionId, options.taskId, actor);
+    const audit = await this.auditTaskScope(workId, options.taskId, actor);
     const violatingFiles = new Set(audit.violations.map((violation) => violation.file));
     const scopedFiles = audit.changed_files.filter((file) => !violatingFiles.has(file));
     const diff = scopedFiles.length > 0 ? await captureFilesDiff(this.repo, scopedFiles) : "";
@@ -1639,8 +1631,8 @@ export class MissionStore {
     };
   }
 
-  async listCheckpoints(missionId: string): Promise<MissionCheckpoint[]> {
-    const paths = this.paths(missionId);
+  async listCheckpoints(workId: string): Promise<WorkCheckpoint[]> {
+    const paths = this.paths(workId);
     try {
       const files = await readdir(paths.checkpoints);
       const checkpoints = await Promise.all(
@@ -1649,7 +1641,7 @@ export class MissionStore {
           .sort()
           .map(async (file) => {
             const text = await readFile(join(paths.checkpoints, file), "utf8");
-            return MissionCheckpointSchema.parse(YAML.parse(text));
+            return WorkCheckpointSchema.parse(YAML.parse(text));
           }),
       );
       return checkpoints;
@@ -1659,8 +1651,8 @@ export class MissionStore {
     }
   }
 
-  async nextCheckpointId(missionId: string): Promise<string> {
-    const checkpoints = await this.listCheckpoints(missionId);
+  async nextCheckpointId(workId: string): Promise<string> {
+    const checkpoints = await this.listCheckpoints(workId);
     const nextNumber =
       checkpoints.reduce((max, checkpoint) => {
         const match = /^checkpoint-(\d+)$/.exec(checkpoint.id);
@@ -1669,40 +1661,40 @@ export class MissionStore {
     return `checkpoint-${String(nextNumber).padStart(3, "0")}`;
   }
 
-  async createBranch(missionId: string, input: CreateBranchInput): Promise<GitIsolation> {
-    await this.readMission(missionId);
-    const branch = input.branch ?? `mission/${missionId}`;
+  async createBranch(workId: string, input: CreateBranchInput): Promise<GitIsolation> {
+    await this.readWork(workId);
+    const branch = input.branch ?? `work/${workId}`;
     await gitOutput(this.repo, ["branch", branch]);
-    const isolation = await this.mergeIsolation(missionId, {
+    const isolation = await this.mergeIsolation(workId, {
       branch,
       created_by: input.actor,
       created_at: utcNow(),
     });
-    await this.appendEvent(missionId, "git.branch.created", input.actor, { branch });
+    await this.appendEvent(workId, "git.branch.created", input.actor, { branch });
     return isolation;
   }
 
-  async createWorktree(missionId: string, input: CreateWorktreeInput): Promise<GitIsolation> {
-    await this.readMission(missionId);
-    const branch = input.branch ?? `mission/${missionId}`;
+  async createWorktree(workId: string, input: CreateWorktreeInput): Promise<GitIsolation> {
+    await this.readWork(workId);
+    const branch = input.branch ?? `work/${workId}`;
     const worktreePath = resolve(input.path);
     await gitOutput(this.repo, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
-    const isolation = await this.mergeIsolation(missionId, {
+    const isolation = await this.mergeIsolation(workId, {
       branch,
       worktree_path: worktreePath,
       created_by: input.actor,
       created_at: utcNow(),
     });
-    await this.appendEvent(missionId, "git.worktree.created", input.actor, {
+    await this.appendEvent(workId, "git.worktree.created", input.actor, {
       branch,
       path: worktreePath,
     });
     return isolation;
   }
 
-  async readIsolation(missionId: string): Promise<GitIsolation | undefined> {
+  async readIsolation(workId: string): Promise<GitIsolation | undefined> {
     try {
-      const text = await readFile(this.paths(missionId).isolation, "utf8");
+      const text = await readFile(this.paths(workId).isolation, "utf8");
       return GitIsolationSchema.parse(YAML.parse(text));
     } catch (error) {
       if (isNodeError(error, "ENOENT")) return undefined;
@@ -1710,32 +1702,28 @@ export class MissionStore {
     }
   }
 
-  async mergeIsolation(missionId: string, patch: Partial<GitIsolation>): Promise<GitIsolation> {
-    const previous = (await this.readIsolation(missionId)) ?? {
+  async mergeIsolation(workId: string, patch: Partial<GitIsolation>): Promise<GitIsolation> {
+    const previous = (await this.readIsolation(workId)) ?? {
       created_by: patch.created_by ?? "unknown",
       created_at: patch.created_at ?? utcNow(),
     };
     const merged = GitIsolationSchema.parse({ ...previous, ...patch });
-    await writeFile(this.paths(missionId).isolation, YAML.stringify(merged), "utf8");
+    await writeFile(this.paths(workId).isolation, YAML.stringify(merged), "utf8");
     return merged;
   }
 
-  async writeRollbackPlan(
-    missionId: string,
-    actor: string,
-    checkpointId?: string,
-  ): Promise<string> {
-    await this.readMission(missionId);
-    const checkpoints = await this.listCheckpoints(missionId);
+  async writeRollbackPlan(workId: string, actor: string, checkpointId?: string): Promise<string> {
+    await this.readWork(workId);
+    const checkpoints = await this.listCheckpoints(workId);
     const checkpoint =
       checkpointId === undefined
         ? checkpoints.at(-1)
         : checkpoints.find((candidate) => candidate.id === checkpointId);
-    const isolation = await this.readIsolation(missionId);
+    const isolation = await this.readIsolation(workId);
     const lines = [
       "# Rollback Plan",
       "",
-      `Mission: ${missionId}`,
+      `Work: ${workId}`,
       `Created by: ${actor}`,
       `Created at: ${utcNow()}`,
       "",
@@ -1743,7 +1731,7 @@ export class MissionStore {
       "",
       checkpoint
         ? `- ${checkpoint.id}: ${checkpoint.label} (${checkpoint.patch})`
-        : "- No checkpoint selected. Create one with `mission checkpoint create` before relying on rollback.",
+        : "- No checkpoint selected. Create one with `supermission checkpoint create` before relying on rollback.",
       "",
       "## Git Isolation",
       "",
@@ -1752,10 +1740,10 @@ export class MissionStore {
       "",
       "## Manual Recovery Steps",
       "",
-      "1. Stop active agents or runners for this mission.",
-      '2. Save the current diff with `mission checkpoint create <mission-id> --label "before rollback"`.',
+      "1. Stop active agents or runners for this work.",
+      '2. Save the current diff with `supermission checkpoint create <work-id> --label "before rollback"`.',
       "3. Review the selected checkpoint patch.",
-      "4. Apply or reverse patches manually from the mission worktree.",
+      "4. Apply or reverse patches manually from the work worktree.",
       "5. Run validation commands.",
       "6. Record the decision and result in `events.jsonl`.",
       "",
@@ -1766,8 +1754,8 @@ export class MissionStore {
       "- Schema/environment rollback needs a dedicated restore plan.",
     ];
     const text = `${lines.join("\n")}\n`;
-    await writeFile(this.paths(missionId).rollbackPlan, text, "utf8");
-    await this.appendEvent(missionId, "rollback.plan.created", actor, {
+    await writeFile(this.paths(workId).rollbackPlan, text, "utf8");
+    await this.appendEvent(workId, "rollback.plan.created", actor, {
       artifact: "rollback-plan.md",
       checkpoint: checkpoint?.id ?? "",
     });
@@ -1775,12 +1763,12 @@ export class MissionStore {
   }
 
   async checkRollback(
-    missionId: string,
+    workId: string,
     actor: string,
     checkpointId?: string,
   ): Promise<RollbackCheckResult> {
-    await this.readMission(missionId);
-    const checkpoints = await this.listCheckpoints(missionId);
+    await this.readWork(workId);
+    const checkpoints = await this.listCheckpoints(workId);
     const checkpoint =
       checkpointId === undefined
         ? checkpoints.at(-1)
@@ -1789,26 +1777,26 @@ export class MissionStore {
       const message = checkpointId
         ? `unknown checkpoint: ${checkpointId}`
         : "no checkpoint available for rollback check";
-      await this.appendEvent(missionId, "rollback.check.failed", actor, { reason: message });
+      await this.appendEvent(workId, "rollback.check.failed", actor, { reason: message });
       return { ok: false, message };
     }
 
-    const patchPath = join(this.paths(missionId).checkpoints, checkpoint.patch);
+    const patchPath = join(this.paths(workId).checkpoints, checkpoint.patch);
     try {
       await gitOutput(this.repo, ["apply", "--reverse", "--check", patchPath]);
       const message = `Rollback check passed for ${checkpoint.id}.`;
-      await this.appendEvent(missionId, "rollback.check.passed", actor, {
+      await this.appendEvent(workId, "rollback.check.passed", actor, {
         checkpoint: checkpoint.id,
       });
       return { checkpoint: checkpoint.id, ok: true, message };
     } catch (error) {
       const message = error instanceof Error ? error.message : "rollback check failed";
-      await this.appendSupervisorSignal(missionId, {
+      await this.appendSupervisorSignal(workId, {
         type: "merge_conflict",
         severity: "blocking",
         message: `Rollback check failed for ${checkpoint.id}: ${message}`,
       });
-      await this.appendEvent(missionId, "rollback.check.failed", actor, {
+      await this.appendEvent(workId, "rollback.check.failed", actor, {
         checkpoint: checkpoint.id,
         reason: message,
       });
@@ -1816,13 +1804,13 @@ export class MissionStore {
     }
   }
 
-  async diagnoseMission(missionId: string): Promise<DoctorFinding[]> {
-    const spec = await this.readMission(missionId);
-    const changes = await this.listChanges(missionId);
-    const checkpoints = await this.listCheckpoints(missionId);
-    const events = await this.readEvents(missionId);
-    const signals = await this.readSupervisorSignals(missionId);
-    const tasks = await this.listTasks(missionId);
+  async diagnoseWork(workId: string): Promise<DoctorFinding[]> {
+    const spec = await this.readWork(workId);
+    const changes = await this.listChanges(workId);
+    const checkpoints = await this.listCheckpoints(workId);
+    const events = await this.readEvents(workId);
+    const signals = await this.readSupervisorSignals(workId);
+    const tasks = await this.listTasks(workId);
     const findings: DoctorFinding[] = [];
 
     if (spec.validation_commands.length === 0) {
@@ -1840,7 +1828,7 @@ export class MissionStore {
         code: "pending_change",
         severity: "blocking",
         message: `${pendingChanges.length} change proposal(s) need a decision.`,
-        next: `Run mission change show ${missionId} ${pendingChanges[0]?.id} and approve/reject/defer/split it.`,
+        next: `Run supermission change show ${workId} ${pendingChanges[0]?.id} and approve/reject/defer/split it.`,
       });
     }
 
@@ -1858,10 +1846,10 @@ export class MissionStore {
 
     if (spec.status === "failed" || spec.status === "blocked") {
       findings.push({
-        code: `mission_${spec.status}`,
+        code: `work_${spec.status}`,
         severity: "blocking",
-        message: `Mission is ${spec.status}.`,
-        next: "Run mission debug and inspect validation/tool-call evidence.",
+        message: `Work is ${spec.status}.`,
+        next: "Run supermission debug and inspect validation/tool-call evidence.",
       });
     }
 
@@ -1902,8 +1890,8 @@ export class MissionStore {
       findings.push({
         code: "checkpoint_missing",
         severity: "warning",
-        message: "Mission is near review/completion but has no checkpoint.",
-        next: "Run mission checkpoint create before review or handoff.",
+        message: "Work is near review/completion but has no checkpoint.",
+        next: "Run supermission checkpoint create before review or handoff.",
       });
     }
 
@@ -1914,7 +1902,7 @@ export class MissionStore {
       findings.push({
         code: "handoff_stale",
         severity: "warning",
-        message: "Handoff was created before the latest mission events.",
+        message: "Handoff was created before the latest work events.",
         next: "Regenerate handoff before completion.",
       });
     }
@@ -1923,7 +1911,7 @@ export class MissionStore {
       findings.push({
         code: "healthy",
         severity: "info",
-        message: "No blocking mission health issues found.",
+        message: "No blocking work health issues found.",
         next: "Continue the current workflow.",
       });
     }
@@ -1931,12 +1919,12 @@ export class MissionStore {
     return findings;
   }
 
-  async summarizeMission(missionId: string): Promise<MissionSummary> {
-    const spec = await this.readMission(missionId);
-    const tasks = await this.listTasks(missionId);
-    const changes = await this.listChanges(missionId);
-    const checkpoints = await this.listCheckpoints(missionId);
-    const findings = await this.diagnoseMission(missionId);
+  async summarizeWork(workId: string): Promise<WorkSummary> {
+    const spec = await this.readWork(workId);
+    const tasks = await this.listTasks(workId);
+    const changes = await this.listChanges(workId);
+    const checkpoints = await this.listCheckpoints(workId);
+    const findings = await this.diagnoseWork(workId);
     return {
       id: spec.id,
       goal: spec.goal,
@@ -1950,33 +1938,33 @@ export class MissionStore {
       checkpoints: checkpoints.length,
       findings,
       artifacts: {
-        mission: this.paths(missionId).mission,
-        events: this.paths(missionId).events,
-        monitor: this.paths(missionId).monitor,
-        scope_audit: this.paths(missionId).scopeAudit,
-        plan: this.paths(missionId).plan,
-        run: this.paths(missionId).runLog,
-        validation: this.paths(missionId).validationLog,
-        review: this.paths(missionId).review,
-        handoff: this.paths(missionId).handoff,
+        work: this.paths(workId).work,
+        events: this.paths(workId).events,
+        monitor: this.paths(workId).monitor,
+        scope_audit: this.paths(workId).scopeAudit,
+        plan: this.paths(workId).plan,
+        run: this.paths(workId).runLog,
+        validation: this.paths(workId).validationLog,
+        review: this.paths(workId).review,
+        handoff: this.paths(workId).handoff,
       },
     };
   }
 }
 
 function isHandoffStalingEvent(event: EventRecord): boolean {
-  if (event.type === "mission.state.changed" && event.to === "completed") return false;
+  if (event.type === "work.state.changed" && event.to === "completed") return false;
   return event.type !== "handoff.created";
 }
 
-function formatTasks(tasks: MissionTask[]): string[] {
+function formatTasks(tasks: WorkTask[]): string[] {
   if (tasks.length === 0) return ["- None"];
   return tasks.map((task) => {
     return `- ${task.id} ${task.status} ${task.mutation_mode} ${task.actor_role}: ${task.title}`;
   });
 }
 
-function formatAllowedStatuses(statuses: MissionStatus[]): string {
+function formatAllowedStatuses(statuses: WorkStatus[]): string {
   if (statuses.length === 1) return statuses[0] ?? "unknown";
   return statuses.join(" or ");
 }
@@ -2016,7 +2004,7 @@ function findingForSupervisorSignal(signal: SupervisorSignalRecord): DoctorFindi
         code: "command_policy_blocked",
         severity: signal.severity,
         message: signal.message,
-        next: "Update .missions/policy.yaml validation_allowlist or change the validation command.",
+        next: "Update .supermission/policy.yaml validation_allowlist or change the validation command.",
       };
     case "linear_mutation_conflict":
       return {
@@ -2074,8 +2062,8 @@ function withRecordIds<T extends object>(
 }
 
 function nextActionsForMonitor(
-  spec: MissionSpec,
-  tasks: MissionTask[],
+  spec: WorkSpec,
+  tasks: WorkTask[],
   changes: ChangeProposal[],
   findings: DoctorFinding[],
 ): string[] {
@@ -2108,11 +2096,11 @@ function nextActionsForMonitor(
     return [`Run or assign sidecar task ${readySidecar.id}; it should not mutate code.`];
   }
 
-  if (spec.status === "draft") return ["Run mission plan and review the generated plan."];
+  if (spec.status === "draft") return ["Run supermission plan and review the generated plan."];
   if (spec.status === "planned") return ["Approve or revise the plan before implementation."];
   if (spec.status === "validated") return ["Create review evidence, checkpoint, and handoff."];
-  if (spec.status === "completed") return ["Archive or inspect mission records as needed."];
-  return ["Continue the current mission workflow."];
+  if (spec.status === "completed") return ["Archive or inspect work records as needed."];
+  return ["Continue the current work workflow."];
 }
 
 function matchesScope(file: string, pattern: string): boolean {
@@ -2154,7 +2142,7 @@ function findRequirementIssues(
       type: "incompleteness",
       severity: "blocking",
       message: "No acceptance criteria are defined.",
-      question: "Should the mission be blocked until testable acceptance criteria are added?",
+      question: "Should the work be blocked until testable acceptance criteria are added?",
       options: ["Add acceptance criteria before planning", "Proceed with explicit human approval"],
     });
   }
@@ -2223,7 +2211,7 @@ function findRequirementIssues(
       id: nextRequirementFindingId(findings),
       type: "incompleteness",
       severity: "warning",
-      message: "No validation command is configured for this mission.",
+      message: "No validation command is configured for this work.",
       question: "How should completion be verified?",
       options: ["Add an automated validation command", "Require manual review evidence"],
     });
@@ -2285,22 +2273,22 @@ function nextRequirementFindingId(findings: RequirementFinding[]): string {
 }
 
 function formatRequirementsAnalysis(
-  mission: MissionSpec,
+  work: WorkSpec,
   actor: string,
   findings: RequirementFinding[],
 ): string {
   const lines = [
     "# Requirements Analysis",
     "",
-    `Mission: ${mission.id}`,
-    `Goal: ${mission.goal}`,
+    `Work: ${work.id}`,
+    `Goal: ${work.goal}`,
     `Analyst: ${actor}`,
     `Created at: ${utcNow()}`,
     "",
     "## Summary",
     "",
-    `- Acceptance criteria: ${mission.acceptance.length}`,
-    `- Validation commands: ${mission.validation_commands.length}`,
+    `- Acceptance criteria: ${work.acceptance.length}`,
+    `- Validation commands: ${work.validation_commands.length}`,
     `- Findings: ${findings.length}`,
     `- Blocking: ${findings.filter((finding) => finding.severity === "blocking").length}`,
     `- Warning: ${findings.filter((finding) => finding.severity === "warning").length}`,
@@ -2316,7 +2304,7 @@ function formatRequirementsAnalysis(
       lines.push(
         `### ${finding.id} ${finding.severity.toUpperCase()} ${finding.type}`,
         "",
-        finding.requirement ? `Requirement: ${finding.requirement}` : "Requirement: mission-level",
+        finding.requirement ? `Requirement: ${finding.requirement}` : "Requirement: work-level",
         "",
         finding.message,
         "",
@@ -2349,7 +2337,7 @@ async function changedGitFiles(repo: string): Promise<string[]> {
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0)
     .map(parsePorcelainPath)
-    .filter((file) => file.length > 0 && !file.startsWith(`${MISSION_ROOT}/`));
+    .filter((file) => file.length > 0 && !file.startsWith(`${WORK_ROOT}/`));
   return [...new Set(files)].sort();
 }
 
@@ -2372,7 +2360,7 @@ async function captureWorkspaceDiff(repo: string): Promise<string> {
     "--binary",
     "--",
     ".",
-    `:(exclude)${MISSION_ROOT}/**`,
+    `:(exclude)${WORK_ROOT}/**`,
   ]);
   const untracked = await captureUntrackedFilesDiff(repo, await untrackedGitFiles(repo));
   return joinDiffParts([tracked, untracked]);
@@ -2481,7 +2469,7 @@ async function untrackedGitFiles(repo: string): Promise<string[]> {
   return output
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith(`${MISSION_ROOT}/`))
+    .filter((line) => line.length > 0 && !line.startsWith(`${WORK_ROOT}/`))
     .sort();
 }
 

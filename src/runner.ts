@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { z } from "zod";
-import type { MissionSpec } from "./types.js";
+import type { WorkSpec } from "./types.js";
 
 export type RunnerBackend = "record" | "shell" | "codex" | "claude";
 
@@ -43,7 +43,7 @@ export const RUNNER_REGISTRY: RunnerDescriptor[] = [
 
 export type RunnerContext = {
   repo: string;
-  mission: MissionSpec;
+  work: WorkSpec;
   actor: string;
   note?: string;
 };
@@ -129,24 +129,24 @@ export type RunnerExecution = {
   tokensUsed?: number;
 };
 
-export function buildMissionPrompt(context: RunnerContext): string {
+export function buildWorkPrompt(context: RunnerContext): string {
   const lines = [
-    `Mission ID: ${context.mission.id}`,
-    `Goal: ${context.mission.goal}`,
+    `Work ID: ${context.work.id}`,
+    `Goal: ${context.work.goal}`,
     `Actor: ${context.actor}`,
     "",
     "Acceptance criteria:",
-    ...(context.mission.acceptance.length > 0
-      ? context.mission.acceptance.map((item) => `- ${item}`)
+    ...(context.work.acceptance.length > 0
+      ? context.work.acceptance.map((item) => `- ${item}`)
       : ["- TBD"]),
     "",
     "Validation commands:",
-    ...(context.mission.validation_commands.length > 0
-      ? context.mission.validation_commands.map((command) => `- ${command}`)
+    ...(context.work.validation_commands.length > 0
+      ? context.work.validation_commands.map((command) => `- ${command}`)
       : ["- TBD"]),
     "",
     "Task:",
-    context.note ?? "Implement the mission and return a concise completion summary.",
+    context.note ?? "Implement the work and return a concise completion summary.",
     "",
     "Return only the completion summary unless the backend requires another format.",
   ];
@@ -154,16 +154,16 @@ export function buildMissionPrompt(context: RunnerContext): string {
 }
 
 export function formatRunLog(input: {
-  missionId: string;
+  workId: string;
   goal: string;
   actor: string;
   execution: RunnerExecution;
 }): string {
-  const { missionId, goal, actor, execution } = input;
+  const { workId, goal, actor, execution } = input;
   const lines = [
     "# Run",
     "",
-    `Mission: ${missionId}`,
+    `Work: ${workId}`,
     `Goal: ${goal}`,
     `Actor: ${actor}`,
     `Backend: ${execution.backend}`,
@@ -304,7 +304,7 @@ async function executeRecordRunner(context: RunnerContext): Promise<RunnerExecut
   const now = isoNow();
   return {
     backend: "record",
-    command: "mission run --backend record",
+    command: "supermission run --backend record",
     prompt: context.note ?? "V0 sequential workflow placeholder.",
     response: context.note ?? "Implementation recorded externally.",
     started_at: now,
@@ -375,7 +375,7 @@ async function executeCodexRunnerAttempt(
   options: RunnerOptions,
   profile?: string,
 ): Promise<RunnerExecution> {
-  const prompt = options.prompt ?? buildMissionPrompt(context);
+  const prompt = options.prompt ?? buildWorkPrompt(context);
   const tempDir = await mkdtemp(join(tmpdir(), "supermission-codex-"));
   const outputPath = join(tempDir, "last-message.txt");
   const ccSwitchProfile = profile ? await createCcSwitchCodexHome(profile, tempDir) : undefined;
@@ -448,7 +448,7 @@ async function executeClaudeRunner(
   context: RunnerContext,
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
-  const prompt = options.prompt ?? buildMissionPrompt(context);
+  const prompt = options.prompt ?? buildWorkPrompt(context);
   const args = [
     "--print",
     "--no-session-persistence",

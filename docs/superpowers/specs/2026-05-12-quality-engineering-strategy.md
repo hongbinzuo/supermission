@@ -67,7 +67,7 @@ new -> plan -> approve -> run -> validate -> handoff -> trace -> inspect
 - missing validation commands。
 - validation command failed。
 - invalid inspect index。
-- malformed mission.yaml。
+- malformed work.yaml。
 - task scope drift。
 - concurrent linear mutation conflict。
 
@@ -75,7 +75,7 @@ new -> plan -> approve -> run -> validate -> handoff -> trace -> inspect
 
 用固定 fixture 验证 artifact 输出：
 
-- `mission.yaml`
+- `work.yaml`
 - `events.jsonl`
 - `plan.md`
 - `validation.log`
@@ -128,7 +128,7 @@ V0 暂不承诺强并发安全，但要把风险测试标出来。
 
 ### 2.8 Security / Command Boundary Tests
 
-`mission validate` 会执行 shell 命令，因此需要安全测试：
+`supermission validate` 会执行 shell 命令，因此需要安全测试：
 
 - 命令必须被记录到 `tool-calls.jsonl`。
 - stdout/stderr 必须落盘。
