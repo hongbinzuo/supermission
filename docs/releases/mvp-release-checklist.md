@@ -33,6 +33,31 @@ bun run build
 npm pack --dry-run
 ```
 
+Package install smoke:
+
+```bash
+rm -f hongbinzuo-supermission-0.1.0.tgz
+npm pack
+tmp=$(mktemp -d)
+repo=$(mktemp -d)
+npm install --prefix "$tmp/pkg" -g "$(pwd)/hongbinzuo-supermission-0.1.0.tgz"
+"$tmp/pkg/bin/mission" --help
+git init "$repo"
+"$tmp/pkg/bin/mission" --repo "$repo" new "Installed package smoke" \
+  --id install-smoke \
+  --acceptance "The installed CLI works" \
+  --validation "node --version"
+"$tmp/pkg/bin/mission" --repo "$repo" plan install-smoke
+"$tmp/pkg/bin/mission" --repo "$repo" requirements check install-smoke
+"$tmp/pkg/bin/mission" --repo "$repo" approve install-smoke
+"$tmp/pkg/bin/mission" --repo "$repo" run install-smoke \
+  --backend shell \
+  --command "printf installed-ok"
+"$tmp/pkg/bin/mission" --repo "$repo" validate install-smoke
+"$tmp/pkg/bin/mission" --repo "$repo" status install-smoke
+rm -rf "$tmp" "$repo" hongbinzuo-supermission-0.1.0.tgz
+```
+
 Optional real runner smoke:
 
 ```bash
