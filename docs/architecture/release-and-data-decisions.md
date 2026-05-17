@@ -19,6 +19,10 @@ Rationale:
 The repository now includes `LICENSE`. Package metadata should use
 `"license": "Apache-2.0"` before public publishing.
 
+Package name decision: use `@hongbinzuo/supermission` for npm because the
+unscoped `supermission` package name is already occupied by another project.
+Keep the binary command as `mission`.
+
 ## Public Release Path
 
 Recommended order:

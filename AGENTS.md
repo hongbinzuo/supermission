@@ -74,8 +74,9 @@ READMEs.
 ## Release And Data Decisions
 
 - License is Apache-2.0.
-- Public release path should be npm package first, GitHub Releases second,
-  Homebrew/Docker later.
+- Public release path should be scoped npm package `@hongbinzuo/supermission`
+  first, GitHub Releases second, Homebrew/Docker later. Keep the binary command
+  as `mission`.
 - Do not remove `"private": true` until release gates, package contents, README
   install docs, and secret checks are ready.
 - Database/search/vector stores may be added only as rebuildable indexes or

@@ -1,10 +1,27 @@
 {
-  "name": "supermission",
+  "name": "@hongbinzuo/supermission",
   "version": "0.1.0",
   "description": "Local-first mission records for AI-assisted software work.",
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
+  "homepage": "https://github.com/hongbinzuo/supermission#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hongbinzuo/supermission.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hongbinzuo/supermission/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "coding",
+    "mission-control",
+    "codex",
+    "claude",
+    "cli"
+  ],
   "bin": {
     "mission": "./bin/mission"
   },

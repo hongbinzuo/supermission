@@ -58,7 +58,9 @@ layers and are optional per mission.
 Supermission is not published yet.
 
 - `package.json` is currently marked `"private": true`.
-- There is no npm, Homebrew, Docker, or binary release channel yet.
+- Target npm package name: `@hongbinzuo/supermission`. The unscoped
+  `supermission` name is already occupied on npm.
+- There is no published npm, Homebrew, Docker, or binary release channel yet.
 - Current install path is local development from this repository.
 - Recommended first public release path is npm package, then GitHub Releases.
   Homebrew and Docker should wait until CLI contracts and runner config are
@@ -79,6 +81,13 @@ Release packaging dry run:
 ```bash
 bun run build
 npm pack --dry-run
+```
+
+Once published, the intended npm install path is:
+
+```bash
+npm install -g @hongbinzuo/supermission
+mission --help
 ```
 
 ## Execution Model
@@ -344,6 +353,8 @@ Supermission's own product capability evaluation loop is tracked in
 [`docs/evaluations/supermission-capability-evaluation.md`](./docs/evaluations/supermission-capability-evaluation.md).
 The current local deterministic baseline fixture is
 [`evals/supermission-capability-baseline.yaml`](./evals/supermission-capability-baseline.yaml).
+MVP release gates are tracked in
+[`docs/releases/mvp-release-checklist.md`](./docs/releases/mvp-release-checklist.md).
 For web-project validation, Playwright is the default deterministic path.
 Computer/browser-use agents are future optional exploratory validators, not a
 replacement for repeatable assertions and trace evidence.

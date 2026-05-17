@@ -38,7 +38,8 @@ Bun-first TypeScript、本地优先、Git-backed `.missions/` 记录、线性代
 当前还没有正式安装包或发布渠道。
 
 - `package.json` 目前是 `"private": true`。
-- 还没有 npm、Homebrew、Docker 或二进制发布。
+- 目标 npm 包名是 `@hongbinzuo/supermission`。未加 scope 的 `supermission` 已经被占用。
+- 还没有公开 npm、Homebrew、Docker 或二进制发布。
 - 当前使用方式是从仓库本地开发运行。
 - 推荐的第一条公开发布路径是 npm package，然后 GitHub Releases。Homebrew 和 Docker
   等 CLI 合约、文件布局和 runner 配置稳定后再做。
@@ -58,6 +59,13 @@ bin/mission --help
 ```bash
 bun run build
 npm pack --dry-run
+```
+
+发布后的预期 npm 安装方式：
+
+```bash
+npm install -g @hongbinzuo/supermission
+mission --help
 ```
 
 ## 工具链
@@ -233,6 +241,8 @@ Supermission 自身产品能力测评循环见
 [`docs/evaluations/supermission-capability-evaluation.md`](./docs/evaluations/supermission-capability-evaluation.md)。
 当前本地确定性 baseline fixture 是
 [`evals/supermission-capability-baseline.yaml`](./evals/supermission-capability-baseline.yaml)。
+MVP 发布 gate 见
+[`docs/releases/mvp-release-checklist.md`](./docs/releases/mvp-release-checklist.md)。
 Web 项目验证默认走 Playwright 这种确定性路径；computer/browser-use agent 后续可以
 作为探索式 validator 插件，但不能替代可重复断言、截图和 trace 证据。
 
