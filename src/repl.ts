@@ -152,6 +152,24 @@ export async function startRepl(repo: string): Promise<void> {
     ].join("\n");
     await writeFile(runLogPath, runLog, "utf8");
 
+    // Capture git diff as evidence of what the agent changed
+    const { execFile: execFileNode } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFileNode);
+    try {
+      const { stdout: diffOutput } = await execFileAsync("git", ["diff", "--stat"], { cwd: repo, timeout: 5000 });
+      const { stdout: diffFull } = await execFileAsync("git", ["diff"], { cwd: repo, timeout: 5000 });
+      if (diffOutput.trim()) {
+        console.log(`  [变更: ${diffOutput.trim().split("\n").length} 个文件]`);
+        // Append diff summary to run log
+        const diffSection = "\n## Changes After Session\n\n```\n" + diffOutput.trim() + "\n```\n\n## Diff\n\n```diff\n" + diffFull.slice(0, 5000) + (diffFull.length > 5000 ? "\n... (truncated)" : "") + "\n```\n";
+        await writeFile(runLogPath, runLog + diffSection, "utf8");
+        // Also save full patch
+        const patchPath = store.paths(currentWorkId).patch;
+        await writeFile(patchPath, diffFull, "utf8");
+      }
+    } catch { /* no git or no changes — skip */ }
+
     rl.resume();
     rl.setPrompt(prompt());
     rl.prompt();
