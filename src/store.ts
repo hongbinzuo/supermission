@@ -45,6 +45,7 @@ export type CreateWorkInput = {
   actor: string;
   acceptance: string[];
   validationCommands: string[];
+  assignee?: string;
 };
 
 export type ValidationResult = {
@@ -239,6 +240,9 @@ export class WorkStore {
       validation_commands: input.validationCommands,
       workflow: DEFAULT_WORKFLOW,
       actors: DEFAULT_ACTORS,
+      depends_on: [],
+      priority: "medium",
+      labels: [],
     };
 
     await this.writeWork(spec);

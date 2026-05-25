@@ -22,6 +22,20 @@ export const WorkSpecSchema = z.object({
   goal: z.string().min(1),
   status: WorkStatusSchema,
   owner: z.string().min(1),
+  assignee: z.string().min(1).optional(),
+  team: z.string().min(1).optional(),
+  priority: z.enum(["urgent", "high", "medium", "low", "backlog"]).default("medium"),
+  milestone: z.string().min(1).optional(),
+  labels: z.array(z.string().min(1)).default([]),
+  cycle: z.string().min(1).optional(),
+  depends_on: z
+    .array(
+      z.object({
+        work_id: z.string().min(1),
+        repo: z.string().optional(),
+      }),
+    )
+    .default([]),
   created_at: z.string().min(1),
   updated_at: z.string().min(1),
   acceptance: z.array(z.string()).default([]),
@@ -106,14 +120,19 @@ export type SupervisorSignal = {
     | "stuck"
     | "repeated_failure"
     | "scope_drift"
+    | "scope_overlap"
     | "gate_waiting"
     | "merge_conflict"
+    | "stale_state"
+    | "stale_lock"
     | "validation_missing"
     | "handoff_stale"
     | "risky_command_blocked"
     | "command_policy_blocked"
     | "requirements_quality"
-    | "linear_mutation_conflict";
+    | "linear_mutation_conflict"
+    | "access_denied"
+    | "blocked_by_dependency";
   severity: "info" | "warning" | "blocking";
   message: string;
 };

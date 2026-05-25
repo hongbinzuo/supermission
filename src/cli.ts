@@ -3,7 +3,9 @@ import { Command } from "commander";
 import { readFile } from "node:fs/promises";
 import YAML from "yaml";
 import {
+  detectAvailableBackends,
   executeRunner,
+  executeRunnerWithFallback,
   listCcSwitchRunnerProfiles,
   RUNNER_REGISTRY,
   RunnerBackendSchema,
@@ -52,6 +54,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--acceptance <item>", "Acceptance criterion", collect, [])
     .option("--validation <command>", "Validation command", collect, [])
+    .option("--assign <identity>", "Assign to a team member or agent")
     .action(async (goalParts: string[], options: NewOptions) => {
       const store = storeFrom(program);
       const workId = await store.createWork({
@@ -60,8 +63,63 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         actor: options.actor,
         acceptance: options.acceptance,
         validationCommands: options.validation,
+        assignee: options.assign,
       });
       console.log(workId);
+    });
+
+  program
+    .command("init")
+    .description("Initialize supermission in this project — detect runners and set defaults")
+    .option("--default-backend <backend>", "Override auto-detected default backend")
+    .option("--force", "Overwrite existing runners.yaml")
+    .action(async (options: { defaultBackend?: string; force?: boolean }) => {
+      const store = storeFrom(program);
+      const existingConfig = await store.readRunnerConfig();
+      const hasExisting =
+        existingConfig.default_backend !== "auto" || existingConfig.fallback_order.length > 0;
+      if (hasExisting && !options.force) {
+        console.log("runners.yaml already configured. Use --force to overwrite.");
+        return;
+      }
+
+      console.log("Detecting available agent CLIs...");
+      const available = await detectAvailableBackends();
+
+      if (available.length === 0) {
+        console.log("\nNo agent CLIs found on PATH.");
+        console.log("Install one of: claude, codex, gemini, aider, opencode, goose, grok");
+        console.log("\nUsing shell runner as default.");
+        await store.writeRunnerConfig({
+          ...existingConfig,
+          default_backend: "shell",
+          fallback_order: [],
+          routing: {},
+        });
+        console.log("\nDone. Try: supermission quick \"Your task\" --command \"echo done\"");
+        return;
+      }
+
+      console.log(`\nFound ${available.length} agent CLI(s):`);
+      for (const backend of available) {
+        const desc = RUNNER_REGISTRY.find((r) => r.backend === backend);
+        console.log(`  ✓ ${backend} — ${desc?.label ?? ""}`);
+      }
+
+      const defaultBackend = options.defaultBackend
+        ? parseRunnerBackend(options.defaultBackend)
+        : available[0];
+
+      await store.writeRunnerConfig({
+        ...existingConfig,
+        default_backend: available.length > 1 ? "auto" : defaultBackend,
+        fallback_order: available,
+        routing: {},
+      });
+
+      console.log(`\nDefault: ${available.length > 1 ? "auto (smart selection)" : defaultBackend}`);
+      console.log(`Fallback order: ${available.join(" → ")}`);
+      console.log("\nDone. Try: supermission quick \"Describe your task here\"");
     });
 
   program
@@ -249,14 +307,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .action(async (options: RunnerCliOptions) => {
       const store = storeFrom(program);
       const runnerConfig = await store.readRunnerConfig();
-      const backend = options.backend ?? runnerConfig.default_backend;
-      const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
-      if (backend === "shell" && !mergedOptions.command) {
+      const resolvedBackend = options.backend ?? (runnerConfig.default_backend === "auto" ? "shell" : runnerConfig.default_backend);
+      const mergedOptions = mergeRunnerOptions(runnerConfig, resolvedBackend, options);
+      if (resolvedBackend === "shell" && !mergedOptions.command) {
         throw new Error("shell runner requires --command");
       }
       const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
       const execution = await executeRunner(
-        backend,
+        resolvedBackend,
         {
           repo: store.repo,
           actor: "runner-smoke",
@@ -271,12 +329,15 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
             validation_commands: [],
             workflow: ["run"],
             actors: ["runner-smoke"],
+            depends_on: [],
+            priority: "medium",
+            labels: [],
           },
         },
         mergedOptions,
       );
       const policy = await store.readPolicy();
-      console.log(`${backend} smoke exit ${execution.exitCode} (${execution.durationMs}ms)`);
+      console.log(`${resolvedBackend} smoke exit ${execution.exitCode} (${execution.durationMs}ms)`);
       if (execution.response) {
         console.log(redactSecrets(execution.response, policy.redaction.patterns).trimEnd());
       }
@@ -320,7 +381,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       ) => {
         const store = storeFrom(program);
         const runnerConfig = await store.readRunnerConfig();
-        const backend = options.backend ?? runnerConfig.default_backend;
+        const backend: RunnerBackend = options.backend ?? (runnerConfig.default_backend === "auto" ? "record" : runnerConfig.default_backend);
         const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
 
         if (backend === "record") {
@@ -385,6 +446,44 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     );
 
   program
+    .command("list")
+    .description("List all work records with status")
+    .option("--status <status>", "Filter by status")
+    .option("--json", "Print JSON")
+    .action(async (options: { status?: string; json?: boolean }) => {
+      const store = storeFrom(program);
+      const ids = await store.listWorkIds();
+      if (ids.length === 0) {
+        console.log("No works found.");
+        return;
+      }
+      const works = [];
+      for (const id of ids) {
+        const spec = await store.readWork(id);
+        if (options.status && spec.status !== options.status) continue;
+        works.push(spec);
+      }
+      if (options.json) {
+        console.log(
+          JSON.stringify(
+            works.map((w) => ({ id: w.id, status: w.status, goal: w.goal, updated_at: w.updated_at })),
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      if (works.length === 0) {
+        console.log("No works match the filter.");
+        return;
+      }
+      for (const spec of works) {
+        console.log(`${spec.id} ${spec.status} - ${spec.goal}`);
+      }
+      console.log(`\n${works.length} work(s)`);
+    });
+
+  program
     .command("status")
     .description("Show work status or list works")
     .argument("[work-id]")
@@ -404,6 +503,72 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         const spec = await store.readWork(id);
         console.log(`${spec.id} ${spec.status} - ${spec.goal}`);
       }
+    });
+
+  program
+    .command("board")
+    .description("Show a kanban-style board of all work records")
+    .option("--mine", "Show only work assigned to current identity")
+    .option("--team <team>", "Filter by team")
+    .option("--json", "Print JSON")
+    .action(async (options: { mine?: boolean; team?: string; json?: boolean }) => {
+      const store = storeFrom(program);
+      const ids = await store.listWorkIds();
+      if (ids.length === 0) {
+        console.log("No works found.");
+        return;
+      }
+
+      const works = [];
+      for (const id of ids) {
+        works.push(await store.readWork(id));
+      }
+
+      // Filter by assignee if --mine
+      let filtered = works;
+      if (options.mine) {
+        const { resolveIdentity } = await import("./identity.js");
+        const identity = await resolveIdentity({ repo: store.repo });
+        filtered = works.filter((w) => w.assignee === identity.id);
+      }
+      if (options.team) {
+        filtered = filtered.filter((w) => w.team === options.team);
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(filtered.map((w) => ({
+          id: w.id, status: w.status, goal: w.goal, assignee: w.assignee ?? "-", team: w.team ?? "-",
+        })), null, 2));
+        return;
+      }
+
+      // Group by status
+      const columns: Record<string, typeof filtered> = {
+        draft: [], planned: [], approved: [], running: [],
+        needs_review: [], validated: [], completed: [], other: [],
+      };
+      for (const w of filtered) {
+        const col = columns[w.status] ?? columns.other;
+        col.push(w);
+      }
+
+      // Print board
+      const activeColumns = Object.entries(columns).filter(([, items]) => items.length > 0);
+      if (activeColumns.length === 0) {
+        console.log("No works match the filter.");
+        return;
+      }
+
+      for (const [status, items] of activeColumns) {
+        console.log(`\n── ${status.toUpperCase()} (${items.length}) ──`);
+        for (const w of items) {
+          const assignee = w.assignee ? ` @${w.assignee}` : "";
+          const goal = w.goal.length > 50 ? w.goal.slice(0, 47) + "..." : w.goal;
+          console.log(`  ${w.id}${assignee}`);
+          console.log(`    ${goal}`);
+        }
+      }
+      console.log(`\n${filtered.length} work(s) total`);
     });
 
   program
@@ -509,6 +674,134 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       for (const task of tasks) {
         console.log(`${task.id} ${task.status} ${task.actor_role} - ${task.title}`);
       }
+    });
+
+  // --- Team collaboration commands ---
+
+  const team = program.command("team").description("Manage team identities for collaboration");
+
+  team
+    .command("init")
+    .description("Initialize team.yaml for collaboration")
+    .action(async () => {
+      const { initTeamRegistry } = await import("./team.js");
+      const store = storeFrom(program);
+      await initTeamRegistry(store.repo);
+      console.log("team.yaml initialized");
+    });
+
+  team
+    .command("add")
+    .description("Register a team member or agent")
+    .requiredOption("--name <name>", "Display name")
+    .option("--id <id>", "Identity id (defaults to lowercase name)")
+    .option("--kind <kind>", "human | agent", "human")
+    .option("--role <role>", "owner | lead | developer | reviewer | agent | observer", "developer")
+    .option("--email <email>", "Email address")
+    .option("--backend <backend>", "Runner backend (required for agents)")
+    .option("--profile <profile>", "Runner profile (for agents)")
+    .action(
+      async (options: {
+        name: string;
+        id?: string;
+        kind: string;
+        role: string;
+        email?: string;
+        backend?: string;
+        profile?: string;
+      }) => {
+        const { addIdentity } = await import("./team.js");
+        const store = storeFrom(program);
+        const id = options.id ?? options.name.toLowerCase().replace(/\s+/g, "-");
+        const identity = await addIdentity(store.repo, {
+          id,
+          name: options.name,
+          kind: options.kind as "human" | "agent",
+          role: options.role as "owner" | "lead" | "developer" | "reviewer" | "agent" | "observer",
+          email: options.email,
+          backend: options.backend,
+          profile: options.profile,
+        });
+        console.log(`${identity.id} ${identity.kind} ${identity.role} - ${identity.name}`);
+      },
+    );
+
+  team
+    .command("remove")
+    .description("Remove a team member")
+    .argument("<identity-id>")
+    .action(async (id: string) => {
+      const { removeIdentity } = await import("./team.js");
+      const store = storeFrom(program);
+      await removeIdentity(store.repo, id);
+      console.log(`removed ${id}`);
+    });
+
+  team
+    .command("list")
+    .description("List registered team members")
+    .action(async () => {
+      const { listIdentities } = await import("./team.js");
+      const store = storeFrom(program);
+      const identities = await listIdentities(store.repo);
+      if (identities.length === 0) {
+        console.log("No team members registered.");
+        return;
+      }
+      for (const identity of identities) {
+        const extra = identity.backend ? ` backend=${identity.backend}` : "";
+        console.log(`${identity.id} ${identity.kind} ${identity.role}${extra} - ${identity.name}`);
+      }
+    });
+
+  program
+    .command("assign")
+    .description("Assign or reassign a work record to a team member")
+    .argument("<work-id>")
+    .requiredOption("--to <identity>", "Identity to assign to")
+    .option("--actor <actor>", "Actor performing the assignment", "local-user")
+    .action(async (workId: string, options: { to: string; actor: string }) => {
+      const { readTeamRegistry } = await import("./identity.js");
+      const store = storeFrom(program);
+      const registry = await readTeamRegistry(store.repo);
+      if (registry && !registry.identities.some((i) => i.id === options.to)) {
+        throw new Error(`unknown identity: ${options.to}. Run \`supermission team list\``);
+      }
+      const spec = await store.readWork(workId);
+      const previous = spec.assignee;
+      await store.writeWork({ ...spec, assignee: options.to });
+      if (previous) {
+        await store.appendEvent(workId, "work.reassigned", options.actor, {
+          from: previous,
+          to: options.to,
+        });
+        console.log(`reassigned ${workId}: ${previous} → ${options.to}`);
+      } else {
+        await store.appendEvent(workId, "work.assigned", options.actor, {
+          assignee: options.to,
+        });
+        console.log(`assigned ${workId} to ${options.to}`);
+      }
+    });
+
+  program
+    .command("release")
+    .description("Release assignment from a work record")
+    .argument("<work-id>")
+    .option("--actor <actor>", "Actor performing the release", "local-user")
+    .action(async (workId: string, options: { actor: string }) => {
+      const store = storeFrom(program);
+      const spec = await store.readWork(workId);
+      if (!spec.assignee) {
+        console.log(`${workId} has no assignee`);
+        return;
+      }
+      const previous = spec.assignee;
+      await store.writeWork({ ...spec, assignee: undefined });
+      await store.appendEvent(workId, "work.released", options.actor, {
+        previous_assignee: previous,
+      });
+      console.log(`released ${workId} (was: ${previous})`);
     });
 
   const task = program.command("task").description("Manage work task ledger");
@@ -901,6 +1194,378 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       console.log(`handoff written for ${workId}`);
     });
 
+  program
+    .command("quick")
+    .description("Fast-path: create, plan, approve, run, and validate in one command")
+    .argument("<goal...>", "Work goal")
+    .option("--id <id>", "Explicit work id")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--acceptance <item>", "Acceptance criterion", collect, [])
+    .option("--validation <command>", "Validation command", collect, [])
+    .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
+    .option("--command <command>", "Shell command for shell runner")
+    .option("--prompt <prompt>", "Prompt for runner backends")
+    .option("--model <model>", "Runner model override")
+    .option("--profile <profile>", "Runner profile override")
+    .option(
+      "--fallback-profile <profile>",
+      "Additional profile to try if the first profile fails",
+      collect,
+      [],
+    )
+    .option("--sandbox <mode>", "Codex sandbox mode", parseSandbox)
+    .option("--permission-mode <mode>", "Claude permission mode", parsePermissionMode)
+    .option("--tool <tool>", "Allowed tool for model runners", collect, [])
+    .option("--timeout-ms <ms>", "Runner process timeout in milliseconds", parseInteger)
+    .option("--skip-validate", "Skip validation step")
+    .option("--skip-handoff", "Skip handoff step")
+    .action(
+      async (
+        goalParts: string[],
+        options: {
+          id?: string;
+          actor: string;
+          acceptance: string[];
+          validation: string[];
+          backend?: RunnerBackend;
+          command?: string;
+          prompt?: string;
+          model?: string;
+          profile?: string;
+          fallbackProfile: string[];
+          sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+          permissionMode?:
+            | "acceptEdits"
+            | "auto"
+            | "bypassPermissions"
+            | "default"
+            | "dontAsk"
+            | "plan";
+          tool: string[];
+          timeoutMs?: number;
+          skipValidate?: boolean;
+          skipHandoff?: boolean;
+        },
+      ) => {
+        const store = storeFrom(program);
+        const goal = goalParts.join(" ");
+
+        // 1. Create
+        const workId = await store.createWork({
+          id: options.id,
+          goal,
+          actor: options.actor,
+          acceptance: options.acceptance,
+          validationCommands: options.validation,
+        });
+        console.log(`created ${workId}`);
+
+        // 2. Plan
+        await store.writePlan(workId, "planner-agent");
+        console.log(`planned ${workId}`);
+
+        // 3. Approve
+        await store.approve(workId, options.actor, "approve_plan", "Quick-path auto-approve");
+        console.log(`approved ${workId}`);
+
+        // 4. Run
+        const runnerConfig = await store.readRunnerConfig();
+        const spec = await store.beginRun(workId, options.actor);
+
+        if (options.backend === "record" || (!options.backend && runnerConfig.default_backend === "record" && runnerConfig.fallback_order.length === 0)) {
+          await store.recordRun(workId, options.actor, options.prompt);
+          console.log(`recorded run for ${workId}`);
+        } else {
+          // Use smart selection with fallback chain
+          const execution = await executeRunnerWithFallback(
+            runnerConfig,
+            { repo: store.repo, work: spec, actor: options.actor },
+            {
+              explicit: options.backend,
+              command: options.command,
+              prompt: options.prompt ?? goal,
+              model: options.model,
+              profile: options.profile,
+              fallbackProfiles: options.fallbackProfile,
+              sandbox: options.sandbox,
+              permissionMode: options.permissionMode,
+              tools: options.tool,
+              timeoutMs: options.timeoutMs,
+            },
+          );
+          await store.recordRunnerExecution(workId, options.actor, execution);
+          console.log(
+            `${execution.backend} runner ${workId} exit ${execution.exitCode} (${execution.durationMs}ms)`,
+          );
+          if (execution.exitCode !== 0) {
+            process.exitCode = execution.exitCode;
+            return;
+          }
+        }
+
+        // 5. Validate (optional)
+        if (!options.skipValidate && options.validation.length > 0) {
+          const result = await store.validate(workId, "validator-agent", {});
+          if (result.exitCode !== 0) {
+            console.log(`validation failed (exit ${result.exitCode})`);
+            process.exitCode = result.exitCode;
+            return;
+          }
+          console.log(`validated ${workId}`);
+        } else if (!options.skipValidate && options.validation.length === 0) {
+          // No validation commands — skip silently
+          console.log(`no validation commands, skipping validate`);
+        }
+
+        // 6. Handoff (optional)
+        if (!options.skipHandoff) {
+          try {
+            await store.writeHandoff(workId, "handoff-agent", true);
+            console.log(`handoff written for ${workId}`);
+          } catch {
+            // Handoff may fail if not validated — that's ok in quick mode
+            console.log(`skipped handoff (work not in validated state)`);
+          }
+        }
+
+        console.log(`\ndone: ${workId}`);
+      },
+    );
+
+  // --- Pipeline commands ---
+
+  const pipelineCmd = program.command("pipeline").description("Manage and run multi-agent pipelines");
+
+  pipelineCmd
+    .command("init")
+    .description("Create default pipeline templates in .supermission/pipelines/")
+    .action(async () => {
+      const { initPipelines } = await import("./pipeline.js");
+      const store = storeFrom(program);
+      await initPipelines(store.repo);
+      console.log("Created pipeline templates:");
+      console.log("  .supermission/pipelines/feature.yaml  — plan → code → test → review");
+      console.log("  .supermission/pipelines/bugfix.yaml   — reproduce → fix → verify");
+      console.log("  .supermission/pipelines/deploy.yaml   — plan → code → test → review → deploy");
+      console.log("\nCustomize these or create your own YAML pipeline files.");
+    });
+
+  pipelineCmd
+    .command("list")
+    .description("List available pipelines")
+    .action(async () => {
+      const { listPipelines } = await import("./pipeline.js");
+      const store = storeFrom(program);
+      const pipelines = await listPipelines(store.repo);
+      if (pipelines.length === 0) {
+        console.log("No pipelines found. Run `supermission pipeline init` to create defaults.");
+        return;
+      }
+      for (const p of pipelines) {
+        const stages = p.stages.map((s) => s.id).join(" → ");
+        console.log(`${p.name} — ${p.description}`);
+        console.log(`  stages: ${stages}`);
+      }
+    });
+
+  pipelineCmd
+    .command("show")
+    .description("Show pipeline details")
+    .argument("<name>")
+    .action(async (name: string) => {
+      const { readPipeline } = await import("./pipeline.js");
+      const store = storeFrom(program);
+      const pipeline = await readPipeline(store.repo, name);
+      console.log(`Pipeline: ${pipeline.name}`);
+      console.log(`Description: ${pipeline.description}`);
+      console.log(`\nStages:`);
+      for (const stage of pipeline.stages) {
+        const backend = stage.backend ? ` [${stage.backend}]` : "";
+        const gate = stage.gate ? ` (gate: ${stage.gate})` : "";
+        const validation = stage.validation ? ` (validates: ${stage.validation})` : "";
+        console.log(`  ${stage.id} — ${stage.role}${backend}${gate}${validation}`);
+        if (stage.prompt) console.log(`    prompt: ${stage.prompt.slice(0, 60)}...`);
+      }
+    });
+
+  pipelineCmd
+    .command("run")
+    .description("Run a pipeline for a goal")
+    .argument("<pipeline-name>")
+    .argument("<goal...>")
+    .option("--id <id>", "Explicit work id")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .option("--skip-stage <stage>", "Skip a stage", collect, [])
+    .option("--acceptance <item>", "Acceptance criterion", collect, [])
+    .option("--validation <command>", "Validation command", collect, [])
+    .action(
+      async (
+        pipelineName: string,
+        goalParts: string[],
+        options: {
+          id?: string;
+          actor: string;
+          skipStage: string[];
+          acceptance: string[];
+          validation: string[];
+        },
+      ) => {
+        const { readPipeline, runPipeline } = await import("./pipeline.js");
+        const store = storeFrom(program);
+        const pipeline = await readPipeline(store.repo, pipelineName);
+        const result = await runPipeline(store, pipeline, {
+          goal: goalParts.join(" "),
+          workId: options.id,
+          skipStages: options.skipStage,
+          actor: options.actor,
+          acceptance: options.acceptance,
+          validation: options.validation,
+        });
+
+        console.log(`\n━━━ Pipeline Result ━━━`);
+        console.log(`Work: ${result.workId}`);
+        console.log(`Pipeline: ${result.pipeline}`);
+        console.log(`Status: ${result.status}`);
+        for (const stage of result.stages) {
+          const icon = stage.status === "completed" ? "✓" : stage.status === "skipped" ? "○" : stage.status === "gate_waiting" ? "⏸" : "✗";
+          console.log(`  ${icon} ${stage.id} — ${stage.status} (${stage.durationMs}ms)${stage.backend ? ` [${stage.backend}]` : ""}`);
+        }
+
+        if (result.status === "failed") process.exitCode = 1;
+      },
+    );
+
+  pipelineCmd
+    .command("batch")
+    .description("Run a pipeline for multiple goals (sequential)")
+    .argument("<pipeline-name>")
+    .argument("<goals...>")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .action(async (pipelineName: string, goals: string[], options: { actor: string }) => {
+      const { readPipeline, runPipeline } = await import("./pipeline.js");
+      const store = storeFrom(program);
+      const pipeline = await readPipeline(store.repo, pipelineName);
+
+      const results = [];
+      for (const goal of goals) {
+        console.log(`\n━━━ Starting: ${goal} ━━━`);
+        const result = await runPipeline(store, pipeline, { goal, actor: options.actor });
+        results.push(result);
+        if (result.status === "failed") {
+          console.log(`\nBatch stopped: "${goal}" failed.`);
+          process.exitCode = 1;
+          break;
+        }
+      }
+
+      console.log(`\n━━━ Batch Summary ━━━`);
+      for (const r of results) {
+        const icon = r.status === "completed" ? "✓" : r.status === "gate_waiting" ? "⏸" : "✗";
+        console.log(`  ${icon} ${r.workId} — ${r.status}`);
+      }
+    });
+
+  // --- Cost and footprint commands ---
+
+  program
+    .command("cost")
+    .description("Show token usage and cost estimate for a work record")
+    .argument("<work-id>")
+    .option("--json", "Print JSON")
+    .action(async (workId: string, options: { json?: boolean }) => {
+      const store = storeFrom(program);
+      const telemetry = await store.readTelemetry(workId);
+      const toolCalls = await store.readToolCalls(workId);
+
+      let totalTokens = 0;
+      let totalDurationMs = 0;
+      let runnerCalls = 0;
+      const byBackend: Record<string, { tokens: number; calls: number; durationMs: number }> = {};
+
+      for (const entry of telemetry) {
+        if (entry.metric === "runner.executed") {
+          const tokens = Number(entry.tokens_used) || 0;
+          const duration = Number(entry.duration_ms) || 0;
+          const backend = String(entry.backend ?? "unknown");
+          totalTokens += tokens;
+          totalDurationMs += duration;
+          runnerCalls++;
+          if (!byBackend[backend]) byBackend[backend] = { tokens: 0, calls: 0, durationMs: 0 };
+          byBackend[backend].tokens += tokens;
+          byBackend[backend].calls++;
+          byBackend[backend].durationMs += duration;
+        }
+      }
+
+      // Rough cost estimate (input+output blended)
+      const costPerMToken: Record<string, number> = {
+        claude: 9.0,    // ~$3 input + $15 output blended
+        codex: 5.0,     // ~$2 input + $8 output blended
+        gemini: 1.25,   // ~$0.5 input + $2 output blended
+        aider: 5.0,     // depends on model
+        opencode: 5.0,
+        copilot: 4.0,
+        "amazon-q": 0,  // included in AWS
+        goose: 5.0,
+        kiro: 5.0,
+        grok: 3.0,
+        shell: 0,
+        record: 0,
+      };
+
+      let estimatedCost = 0;
+      for (const [backend, data] of Object.entries(byBackend)) {
+        const rate = costPerMToken[backend] ?? 5.0;
+        estimatedCost += (data.tokens / 1_000_000) * rate;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({ totalTokens, totalDurationMs, runnerCalls, estimatedCost, byBackend }, null, 2));
+        return;
+      }
+
+      console.log(`Cost report: ${workId}`);
+      console.log(`  Total tokens: ${totalTokens.toLocaleString()}`);
+      console.log(`  Total runtime: ${(totalDurationMs / 1000).toFixed(1)}s`);
+      console.log(`  Runner calls: ${runnerCalls}`);
+      console.log(`  Estimated cost: $${estimatedCost.toFixed(4)}`);
+      if (Object.keys(byBackend).length > 0) {
+        console.log(`\n  By backend:`);
+        for (const [backend, data] of Object.entries(byBackend)) {
+          const rate = costPerMToken[backend] ?? 5.0;
+          const cost = (data.tokens / 1_000_000) * rate;
+          console.log(`    ${backend}: ${data.tokens.toLocaleString()} tokens, ${data.calls} call(s), ${(data.durationMs / 1000).toFixed(1)}s, ~$${cost.toFixed(4)}`);
+        }
+      }
+
+      // Footprint summary from tool calls
+      const stages = new Set<string>();
+      const artifacts = new Set<string>();
+      for (const tc of toolCalls) {
+        if (tc.footprint_stage) stages.add(String(tc.footprint_stage));
+        if (tc.footprint_artifact) artifacts.add(String(tc.footprint_artifact));
+      }
+      if (stages.size > 0) {
+        console.log(`\n  Footprint stages: ${[...stages].join(", ")}`);
+        console.log(`  Artifacts produced: ${[...artifacts].join(", ")}`);
+      }
+    });
+
+  program
+    .command("serve")
+    .description("Start local web dashboard")
+    .option("--port <port>", "Server port", "4000")
+    .option("--open", "Open browser automatically")
+    .action(async (options: { port: string; open?: boolean }) => {
+      const { startServer } = await import("./web.js");
+      const store = storeFrom(program);
+      await startServer({
+        port: Number.parseInt(options.port, 10),
+        repo: store.repo,
+        open: options.open,
+      });
+    });
+
   await program.parseAsync(argv, { from: "user" });
 }
 
@@ -924,6 +1589,7 @@ type NewOptions = {
   actor: string;
   acceptance: string[];
   validation: string[];
+  assign?: string;
 };
 
 type ChangeProposeOptions = {
@@ -1039,11 +1705,21 @@ function defaultRunnerConfig(defaultBackend: RunnerBackend): RunnerConfig {
   };
   return {
     default_backend: defaultBackend,
+    fallback_order: [],
+    routing: {},
     backends: {
       record: defaultBackendConfig,
       shell: defaultBackendConfig,
       codex: defaultBackendConfig,
       claude: defaultBackendConfig,
+      gemini: defaultBackendConfig,
+      aider: defaultBackendConfig,
+      opencode: defaultBackendConfig,
+      copilot: defaultBackendConfig,
+      "amazon-q": defaultBackendConfig,
+      goose: defaultBackendConfig,
+      kiro: defaultBackendConfig,
+      grok: defaultBackendConfig,
     },
   };
 }

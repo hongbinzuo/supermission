@@ -5,9 +5,34 @@ import { homedir, tmpdir } from "node:os";
 import { z } from "zod";
 import type { WorkSpec } from "./types.js";
 
-export type RunnerBackend = "record" | "shell" | "codex" | "claude";
+export type RunnerBackend =
+  | "record"
+  | "shell"
+  | "codex"
+  | "claude"
+  | "gemini"
+  | "aider"
+  | "opencode"
+  | "copilot"
+  | "amazon-q"
+  | "goose"
+  | "kiro"
+  | "grok";
 
-export const RunnerBackendSchema = z.enum(["record", "shell", "codex", "claude"]);
+export const RunnerBackendSchema = z.enum([
+  "record",
+  "shell",
+  "codex",
+  "claude",
+  "gemini",
+  "aider",
+  "opencode",
+  "copilot",
+  "amazon-q",
+  "goose",
+  "kiro",
+  "grok",
+]);
 
 export type RunnerDescriptor = {
   backend: RunnerBackend;
@@ -29,15 +54,55 @@ export const RUNNER_REGISTRY: RunnerDescriptor[] = [
   { backend: "shell", label: "Execute a local shell command", kind: "local" },
   {
     backend: "codex",
-    label: "Execute Codex CLI through the shared runner interface",
+    label: "OpenAI Codex CLI agent",
     kind: "external",
     profileSource: "cc-switch-or-native",
   },
   {
     backend: "claude",
-    label: "Execute Claude Code CLI through the shared runner interface",
+    label: "Anthropic Claude Code CLI agent",
     kind: "external",
     profileSource: "native",
+  },
+  {
+    backend: "gemini",
+    label: "Google Gemini CLI agent",
+    kind: "external",
+  },
+  {
+    backend: "aider",
+    label: "Aider AI pair programming CLI",
+    kind: "external",
+  },
+  {
+    backend: "opencode",
+    label: "OpenCode terminal AI agent",
+    kind: "external",
+  },
+  {
+    backend: "copilot",
+    label: "GitHub Copilot CLI agent",
+    kind: "external",
+  },
+  {
+    backend: "amazon-q",
+    label: "Amazon Q Developer CLI agent",
+    kind: "external",
+  },
+  {
+    backend: "goose",
+    label: "Block Goose autonomous coding agent",
+    kind: "external",
+  },
+  {
+    backend: "kiro",
+    label: "AWS Kiro CLI agent",
+    kind: "external",
+  },
+  {
+    backend: "grok",
+    label: "xAI Grok CLI agent",
+    kind: "external",
   },
 ];
 
@@ -96,19 +161,37 @@ const RunnerBackendConfigSchema = z.object({
 });
 
 export const RunnerConfigSchema = z.object({
-  default_backend: RunnerBackendSchema.default("record"),
+  default_backend: RunnerBackendSchema.or(z.literal("auto")).default("auto"),
+  fallback_order: z.array(RunnerBackendSchema).default([]),
+  routing: z.record(z.string(), RunnerBackendSchema).default({}),
   backends: z
     .object({
       record: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       shell: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       codex: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       claude: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      gemini: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      aider: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      opencode: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      copilot: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      "amazon-q": RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      goose: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      kiro: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      grok: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
     })
     .default({
       record: DEFAULT_BACKEND_CONFIG,
       shell: DEFAULT_BACKEND_CONFIG,
       codex: DEFAULT_BACKEND_CONFIG,
       claude: DEFAULT_BACKEND_CONFIG,
+      gemini: DEFAULT_BACKEND_CONFIG,
+      aider: DEFAULT_BACKEND_CONFIG,
+      opencode: DEFAULT_BACKEND_CONFIG,
+      copilot: DEFAULT_BACKEND_CONFIG,
+      "amazon-q": DEFAULT_BACKEND_CONFIG,
+      goose: DEFAULT_BACKEND_CONFIG,
+      kiro: DEFAULT_BACKEND_CONFIG,
+      grok: DEFAULT_BACKEND_CONFIG,
     }),
 });
 
@@ -128,6 +211,141 @@ export type RunnerExecution = {
   stderr: string;
   tokensUsed?: number;
 };
+
+// --- Smart Runner Selection ---
+
+const DETECTABLE_BACKENDS: Array<{ backend: RunnerBackend; binary: string }> = [
+  { backend: "claude", binary: "claude" },
+  { backend: "codex", binary: "codex" },
+  { backend: "gemini", binary: "gemini" },
+  { backend: "aider", binary: "aider" },
+  { backend: "opencode", binary: "opencode" },
+  { backend: "copilot", binary: "gh" },
+  { backend: "amazon-q", binary: "q" },
+  { backend: "goose", binary: "goose" },
+  { backend: "kiro", binary: "kiro" },
+  { backend: "grok", binary: "grok" },
+];
+
+export async function detectAvailableBackends(): Promise<RunnerBackend[]> {
+  const available: RunnerBackend[] = [];
+  for (const { backend, binary } of DETECTABLE_BACKENDS) {
+    if (await isBinaryOnPath(binary)) {
+      available.push(backend);
+    }
+  }
+  return available;
+}
+
+async function isBinaryOnPath(binary: string): Promise<boolean> {
+  const result = await spawnCaptured("which", [binary], process.cwd(), false, undefined, {
+    timeoutMs: 3000,
+  });
+  return result.exitCode === 0 && result.stdout.trim().length > 0;
+}
+
+export function resolveBackend(
+  config: RunnerConfig,
+  options: { explicit?: RunnerBackend; actorRole?: string; available?: RunnerBackend[] },
+): RunnerBackend {
+  // 1. Explicit CLI flag always wins
+  if (options.explicit) return options.explicit;
+
+  // 2. Role-based routing from config
+  if (options.actorRole && config.routing[options.actorRole]) {
+    return config.routing[options.actorRole];
+  }
+
+  // 3. If default is a specific backend, use it
+  if (config.default_backend !== "auto") {
+    return config.default_backend as RunnerBackend;
+  }
+
+  // 4. Auto mode: use fallback_order filtered by available, or first available
+  const available = options.available ?? [];
+  if (config.fallback_order.length > 0) {
+    const match = config.fallback_order.find(
+      (b) => available.length === 0 || available.includes(b),
+    );
+    if (match) return match;
+  }
+
+  // 5. First available backend
+  if (available.length > 0) return available[0];
+
+  // 6. Ultimate fallback
+  return "record";
+}
+
+export async function executeRunnerWithFallback(
+  config: RunnerConfig,
+  context: RunnerContext,
+  options: RunnerOptions & { explicit?: RunnerBackend; actorRole?: string },
+): Promise<RunnerExecution> {
+  const available = await detectAvailableBackends();
+
+  // If explicit backend specified, just run it (no fallback chain)
+  if (options.explicit) {
+    return executeRunner(options.explicit, context, options);
+  }
+
+  // Build the chain: role-routing → fallback_order → default
+  const chain: RunnerBackend[] = [];
+
+  // Role routing first
+  if (options.actorRole && config.routing[options.actorRole]) {
+    chain.push(config.routing[options.actorRole]);
+  }
+
+  // Then fallback_order
+  for (const backend of config.fallback_order) {
+    if (!chain.includes(backend)) chain.push(backend);
+  }
+
+  // Then default_backend
+  if (config.default_backend !== "auto" && !chain.includes(config.default_backend as RunnerBackend)) {
+    chain.push(config.default_backend as RunnerBackend);
+  }
+
+  // If chain is empty (pure auto mode), use available backends
+  if (chain.length === 0) {
+    if (available.length > 0) {
+      chain.push(...available);
+    } else {
+      return executeRunner("record", context, options);
+    }
+  }
+
+  // Try each backend in the chain
+  const failedAttempts: RunnerExecution[] = [];
+  for (const backend of chain) {
+    const execution = await executeRunner(backend, context, options);
+    if (execution.exitCode === 0) {
+      return failedAttempts.length > 0
+        ? { ...execution, stderr: formatFallbackAttempts(failedAttempts) + execution.stderr }
+        : execution;
+    }
+    // Exit 127 = command not found — skip to next in chain
+    // Other failures might be real errors — still try next
+    failedAttempts.push(execution);
+  }
+
+  // All failed — return last attempt with full history
+  const last = failedAttempts[failedAttempts.length - 1];
+  if (!last) return executeRunner("record", context, options);
+  return { ...last, stderr: formatFallbackAttempts(failedAttempts.slice(0, -1)) + last.stderr };
+}
+
+function formatFallbackAttempts(attempts: RunnerExecution[]): string {
+  if (attempts.length === 0) return "";
+  return (
+    attempts
+      .map((a) => `fallback: ${a.backend} failed (exit ${a.exitCode})`)
+      .join("\n") + "\n"
+  );
+}
+
+// --- End Smart Runner Selection ---
 
 export function buildWorkPrompt(context: RunnerContext): string {
   const lines = [
@@ -240,6 +458,22 @@ async function executeRunnerOnce(
       return executeCodexRunner(context, options);
     case "claude":
       return executeClaudeRunner(context, options);
+    case "gemini":
+      return executeGeminiRunner(context, options);
+    case "aider":
+      return executeAiderRunner(context, options);
+    case "opencode":
+      return executeOpencodeRunner(context, options);
+    case "copilot":
+      return executeCopilotRunner(context, options);
+    case "amazon-q":
+      return executeAmazonQRunner(context, options);
+    case "goose":
+      return executeGooseRunner(context, options);
+    case "kiro":
+      return executeKiroRunner(context, options);
+    case "grok":
+      return executeGrokRunner(context, options);
   }
 }
 
@@ -472,6 +706,270 @@ async function executeClaudeRunner(
   return {
     backend: "claude",
     command: formatCommandLine("claude", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeGeminiRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "--prompt",
+    prompt,
+    "--sandbox",
+    "false",
+    "--yes",
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("gemini", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "gemini",
+    command: formatCommandLine("gemini", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeAiderRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "--message",
+    prompt,
+    "--yes-always",
+    "--no-auto-commits",
+    "--no-git",
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("aider", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "aider",
+    command: formatCommandLine("aider", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeOpencodeRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "run",
+    "--prompt",
+    prompt,
+    "--non-interactive",
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("opencode", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "opencode",
+    command: formatCommandLine("opencode", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeCopilotRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "agent",
+    "--message",
+    prompt,
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("gh", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "copilot",
+    command: formatCommandLine("gh", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeAmazonQRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "dev",
+    "--prompt",
+    prompt,
+    "--non-interactive",
+  ];
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("q", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "amazon-q",
+    command: formatCommandLine("q", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeGooseRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "run",
+    "--text",
+    prompt,
+    "--no-session",
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("goose", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "goose",
+    command: formatCommandLine("goose", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeKiroRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "run",
+    "--prompt",
+    prompt,
+    "--non-interactive",
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("kiro", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "kiro",
+    command: formatCommandLine("kiro", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeGrokRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = [
+    "run",
+    "--prompt",
+    prompt,
+    "--non-interactive",
+  ];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("grok", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "grok",
+    command: formatCommandLine("grok", args, prompt),
     prompt,
     response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
     started_at: startedAt,
