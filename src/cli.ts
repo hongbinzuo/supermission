@@ -123,6 +123,74 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     });
 
   program
+    .command("info")
+    .description("Show current environment: agent CLIs, versions, models, and config")
+    .action(async () => {
+      const store = storeFrom(program);
+      const runnerConfig = await store.readRunnerConfig();
+
+      console.log("Supermission Environment");
+      console.log("========================\n");
+
+      // Show config
+      console.log(`Default backend: ${runnerConfig.default_backend}`);
+      if (runnerConfig.fallback_order.length > 0) {
+        console.log(`Fallback order: ${runnerConfig.fallback_order.join(" → ")}`);
+      }
+      if (Object.keys(runnerConfig.routing).length > 0) {
+        console.log(`\nRouting:`);
+        for (const [role, backend] of Object.entries(runnerConfig.routing)) {
+          console.log(`  ${role} → ${backend}`);
+        }
+      }
+
+      // Detect and show agent CLI versions
+      console.log(`\nAgent CLIs:`);
+      const agents = [
+        { name: "claude", cmd: "claude", versionFlag: "--version" },
+        { name: "codex", cmd: "codex", versionFlag: "--version" },
+        { name: "gemini", cmd: "gemini", versionFlag: "--version" },
+        { name: "aider", cmd: "aider", versionFlag: "--version" },
+        { name: "opencode", cmd: "opencode", versionFlag: "--version" },
+        { name: "copilot (gh)", cmd: "gh", versionFlag: "--version" },
+        { name: "amazon-q", cmd: "q", versionFlag: "--version" },
+        { name: "goose", cmd: "goose", versionFlag: "--version" },
+        { name: "kiro", cmd: "kiro", versionFlag: "--version" },
+        { name: "grok", cmd: "grok", versionFlag: "--version" },
+      ];
+
+      for (const agent of agents) {
+        try {
+          const { execFile } = await import("node:child_process");
+          const { promisify } = await import("node:util");
+          const execFileAsync = promisify(execFile);
+          const { stdout } = await execFileAsync(agent.cmd, [agent.versionFlag], { timeout: 3000 });
+          const version = stdout.trim().split("\n")[0];
+          console.log(`  ✓ ${agent.name}: ${version}`);
+        } catch {
+          console.log(`  ✗ ${agent.name}: not installed`);
+        }
+      }
+
+      // Show configured models
+      const configuredModels: string[] = [];
+      for (const [backend, config] of Object.entries(runnerConfig.backends)) {
+        if (config.model) configuredModels.push(`${backend}: ${config.model}`);
+        if (config.profile) configuredModels.push(`${backend}: profile=${config.profile}`);
+      }
+      if (configuredModels.length > 0) {
+        console.log(`\nConfigured models/profiles:`);
+        for (const m of configuredModels) {
+          console.log(`  ${m}`);
+        }
+      }
+
+      console.log(`\nRepo: ${store.repo}`);
+      const ids = await store.listWorkIds();
+      console.log(`Works: ${ids.length}`);
+    });
+
+  program
     .command("plan")
     .description("Generate an initial plan artifact")
     .argument("<work-id>")
