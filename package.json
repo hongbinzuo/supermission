@@ -1,9 +1,8 @@
 {
   "name": "@hongbinzuo/supermission",
-  "version": "0.1.0",
-  "description": "Local-first work records for AI-assisted software work.",
+  "version": "0.6.0",
+  "description": "Local-first work records for AI-assisted software work. Multi-agent pipelines, team collaboration, 12 runner backends.",
   "type": "module",
-  "private": true,
   "license": "Apache-2.0",
   "homepage": "https://github.com/hongbinzuo/supermission#readme",
   "repository": {
@@ -18,9 +17,15 @@
     "agent",
     "coding",
     "work-records",
+    "pipeline",
+    "multi-agent",
     "codex",
     "claude",
-    "cli"
+    "gemini",
+    "aider",
+    "cli",
+    "local-first",
+    "project-management"
   ],
   "bin": {
     "supermission": "./bin/supermission"
