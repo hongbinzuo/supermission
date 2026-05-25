@@ -234,9 +234,9 @@ function launchAgentSession(backend: string, initialPrompt: string, cwd: string)
 
     switch (backend) {
       case "claude":
-        // Launch claude interactively with initial prompt, session persists
+        // Launch claude interactively with initial prompt as positional arg
         cmd = "claude";
-        args = ["-p", initialPrompt];
+        args = [initialPrompt];
         break;
       case "codex":
         cmd = "codex";
