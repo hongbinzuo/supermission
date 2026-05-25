@@ -1695,27 +1695,60 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     }
 
     // Start dashboard in background, keep CLI interactive
+    const { readFile: readFs2, writeFile: writeFs2, mkdir: mkdirFs2 } = await import("node:fs/promises");
+    const { join: joinPath2 } = await import("node:path");
+    const { basename } = await import("node:path");
+    const { homedir } = await import("node:os");
     const { spawn: spawnChild } = await import("node:child_process");
-    const serverProcess = spawnChild(process.execPath, [process.argv[1], "serve", "--port", "4000"], {
-      cwd: store.repo,
-      stdio: "ignore",
-      detached: true,
-    });
-    serverProcess.unref();
+
+    const home = homedir();
+    const serverFile = joinPath2(home, ".supermission-cli", "server.json");
+    const projectName = basename(store.repo);
+
+    // Register this repo with the global server registry
+    let serverInfo: { pid?: number; port: number; repos: Record<string, string> } = { port: 4000, repos: {} };
+    try {
+      serverInfo = JSON.parse(await readFs2(serverFile, "utf8"));
+    } catch { /* first time */ }
+    serverInfo.repos[projectName] = store.repo;
+
+    // Check if server is already running
+    let serverRunning = false;
+    if (serverInfo.pid) {
+      try { process.kill(serverInfo.pid, 0); serverRunning = true; } catch { /* not running */ }
+    }
+
+    if (!serverRunning) {
+      // Start single global server
+      const serverProcess = spawnChild(process.execPath, [process.argv[1], "serve", "--port", "4000"], {
+        cwd: store.repo,
+        stdio: "ignore",
+        detached: true,
+      });
+      serverProcess.unref();
+      serverInfo.pid = serverProcess.pid;
+    }
+
+    // Save registry
+    await mkdirFs2(joinPath2(home, ".supermission-cli"), { recursive: true });
+    await writeFs2(serverFile, JSON.stringify(serverInfo, null, 2), "utf8");
 
     // Open browser
     const { exec: execCmd } = await import("node:child_process");
     execCmd("open http://localhost:4000");
 
-    console.log("  ⚡ Supermission");
+    console.log(`  ⚡ Supermission — ${projectName}`);
     console.log("  Dashboard: http://localhost:4000");
+    if (Object.keys(serverInfo.repos).length > 1) {
+      console.log(`  Projects: ${Object.keys(serverInfo.repos).join(", ")}`);
+    }
     console.log("");
     console.log("  Commands:");
-    console.log("    supermission quick \"your task\"         Run a task end-to-end");
-    console.log("    supermission pipeline run feature \"goal\"  Multi-agent pipeline");
-    console.log("    supermission board                     Kanban view");
-    console.log("    supermission info                      Show environment");
-    console.log("    supermission --help                    All commands");
+    console.log("    superm quick \"your task\"              Run a task end-to-end");
+    console.log("    superm pipeline run feature \"goal\"    Multi-agent pipeline");
+    console.log("    superm board                          Kanban view");
+    console.log("    superm info                           Show environment");
+    console.log("    superm --help                         All commands");
     console.log("");
     return;
   }
