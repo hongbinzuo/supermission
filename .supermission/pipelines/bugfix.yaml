@@ -1,0 +1,16 @@
+name: bugfix
+description: "Quick bugfix pipeline: reproduce → fix → test"
+stages:
+  - id: reproduce
+    role: tester-agent
+    prompt: Write a failing test that reproduces this bug.
+    skip_on_fail: false
+  - id: fix
+    role: worker-agent
+    prompt: Fix the bug. The failing test should now pass.
+    skip_on_fail: false
+  - id: verify
+    role: tester-agent
+    validation: bun run test
+    prompt: Run all tests and verify the fix doesn't break anything else.
+    skip_on_fail: false

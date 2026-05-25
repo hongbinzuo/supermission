@@ -1,9 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { exec } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { exec, spawn } from "node:child_process";
+import { readFile, appendFile } from "node:fs/promises";
 import { WorkStore } from "./store.js";
 import type { WorkSpec } from "./types.js";
 import { readTeamRegistry } from "./identity.js";
+
+// Track running agent processes: workId → { pid, process }
+const runningAgents: Map<string, { pid: number; kill: () => void }> = new Map();
 
 export type ServeOptions = {
   port: number;
@@ -38,6 +41,16 @@ export async function startServer(options: ServeOptions): Promise<void> {
       } else if (url.pathname === "/api/environment") {
         const env = await getEnvironment(store);
         json(res, env);
+      } else if (url.pathname === "/api/pipeline/save" && req.method === "POST") {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        const { writeFile: writeFileFs, mkdir: mkdirFs } = await import("node:fs/promises");
+        const { join: joinPath } = await import("node:path");
+        const YAML = (await import("yaml")).default;
+        const dir = joinPath(store.repo, ".supermission", "pipelines");
+        await mkdirFs(dir, { recursive: true });
+        await writeFileFs(joinPath(dir, data.name + ".yaml"), YAML.stringify(data.pipeline), "utf8");
+        json(res, { ok: true, name: data.name });
       } else if (url.pathname.startsWith("/api/close/")) {
         const workId = decodeURIComponent(url.pathname.slice("/api/close/".length));
         await store.updateStatus(workId, "completed", "dashboard-user", "Closed from dashboard");
@@ -46,14 +59,26 @@ export async function startServer(options: ServeOptions): Promise<void> {
         const parts = url.pathname.slice("/api/action/".length).split("/");
         const action = parts[0];
         const workId = decodeURIComponent(parts.slice(1).join("/"));
-        const statusMap: Record<string, string> = {
-          start: "running", pause: "paused", complete: "completed",
-          fail: "failed", reopen: "draft", archive: "completed",
-        };
-        const newStatus = statusMap[action];
-        if (!newStatus) { res.writeHead(400); res.end(JSON.stringify({ error: "unknown action" })); return; }
-        await store.updateStatus(workId, newStatus as import("./types.js").WorkStatus, "dashboard-user", `${action} from dashboard`);
-        json(res, { ok: true, workId, status: newStatus });
+
+        if (action === "start") {
+          // Spawn agent in background
+          const result = await startWorkAgent(store, workId);
+          json(res, result);
+        } else if (action === "pause" || action === "fail") {
+          // Kill running agent
+          const killed = stopWorkAgent(workId);
+          const newStatus = action === "pause" ? "paused" : "failed";
+          await store.updateStatus(workId, newStatus as import("./types.js").WorkStatus, "dashboard-user", `${action} from dashboard`);
+          json(res, { ok: true, workId, status: newStatus, killed });
+        } else {
+          const statusMap: Record<string, string> = {
+            complete: "completed", reopen: "draft", archive: "completed",
+          };
+          const newStatus = statusMap[action];
+          if (!newStatus) { res.writeHead(400); res.end(JSON.stringify({ error: "unknown action" })); return; }
+          await store.updateStatus(workId, newStatus as import("./types.js").WorkStatus, "dashboard-user", `${action} from dashboard`);
+          json(res, { ok: true, workId, status: newStatus });
+        }
       } else {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(dashboardHtml(options.port));
@@ -93,6 +118,14 @@ function json(res: ServerResponse, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk: string) => { body += chunk; });
+    req.on("end", () => resolve(body));
+  });
+}
+
 async function getWorks(store: WorkStore): Promise<WorkSpec[]> {
   const ids = await store.listWorkIds();
   const works: WorkSpec[] = [];
@@ -100,6 +133,131 @@ async function getWorks(store: WorkStore): Promise<WorkSpec[]> {
     works.push(await store.readWork(id));
   }
   return works;
+}
+
+async function startWorkAgent(store: WorkStore, workId: string) {
+  // Check if already running
+  if (runningAgents.has(workId)) {
+    return { ok: false, error: "Agent already running for this work" };
+  }
+
+  const spec = await store.readWork(workId);
+  const config = await store.readRunnerConfig();
+
+  // Resolve which backend to use
+  const { resolveBackend } = await import("./runner.js");
+  const backend = resolveBackend(config, { available: config.fallback_order });
+
+  if (backend === "record") {
+    return { ok: false, error: "No agent backend configured. Run: supermission init" };
+  }
+
+  // Update status to running
+  await store.updateStatus(workId, "running", "dashboard-user", `Started ${backend} from dashboard`);
+
+  // Build the prompt
+  const { buildWorkPrompt } = await import("./runner.js");
+  const prompt = buildWorkPrompt({ repo: store.repo, work: spec, actor: "dashboard-user" });
+
+  // Determine command and args based on backend
+  let cmd: string;
+  let args: string[];
+
+  switch (backend) {
+    case "claude":
+      cmd = "claude";
+      args = ["--print", "--no-session-persistence", "--output-format", "text", "--dangerously-skip-permissions", prompt];
+      break;
+    case "codex":
+      cmd = "codex";
+      args = ["exec", "-C", store.repo, "--ephemeral", "--dangerously-bypass-approvals-and-sandbox", prompt];
+      break;
+    case "gemini":
+      cmd = "gemini";
+      args = ["--prompt", prompt, "--sandbox", "false", "--yes"];
+      break;
+    default:
+      cmd = backend;
+      args = ["--prompt", prompt];
+  }
+
+  // Spawn in background, capture output to run.log
+  const paths = store.paths(workId);
+  const logPath = paths.runLog;
+
+  const child = spawn(cmd, args, {
+    cwd: store.repo,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false,
+  });
+
+  let stdout = "";
+
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+    appendFile(logPath, chunk).catch(() => {});
+  });
+  child.stderr.on("data", (chunk: string) => {
+    appendFile(logPath, chunk).catch(() => {});
+  });
+
+  const pid = child.pid ?? 0;
+  runningAgents.set(workId, { pid, kill: () => child.kill("SIGTERM") });
+
+  child.on("close", async (code) => {
+    runningAgents.delete(workId);
+    const exitCode = code ?? 1;
+
+    try {
+      if (exitCode !== 0) {
+        await store.updateStatus(workId, "failed", "dashboard-user", `${backend} exited ${exitCode}`);
+      } else if (spec.validation_commands.length > 0) {
+        // Agent succeeded — run validation automatically
+        const valResult = await store.validate(workId, "validator-agent", {});
+        if (valResult.exitCode === 0) {
+          // Validation passed — auto-complete if no acceptance criteria need human review
+          if (spec.acceptance.length === 0) {
+            await store.updateStatus(workId, "completed", "dashboard-user", "Auto-completed: agent + validation passed");
+          } else {
+            await store.updateStatus(workId, "validated", "dashboard-user", "Agent + validation passed, review acceptance criteria");
+          }
+        } else {
+          await store.updateStatus(workId, "failed", "dashboard-user", "Validation failed after agent completed");
+        }
+      } else if (spec.acceptance.length > 0) {
+        // No validation commands but has acceptance criteria — needs human review
+        await store.updateStatus(workId, "needs_review", "dashboard-user", `${backend} completed, review needed`);
+      } else {
+        // No validation, no acceptance — auto-complete
+        await store.updateStatus(workId, "completed", "dashboard-user", `${backend} completed`);
+      }
+
+      await store.appendEvent(workId, "runner.executed", "dashboard-user", {
+        backend,
+        exit_code: exitCode,
+        stdout_chars: stdout.length,
+      });
+    } catch { /* ignore cleanup errors */ }
+  });
+
+  child.on("error", async () => {
+    runningAgents.delete(workId);
+    try {
+      await store.updateStatus(workId, "failed", "dashboard-user", `${backend} failed to start`);
+    } catch { /* ignore */ }
+  });
+
+  return { ok: true, workId, backend, pid, status: "running" };
+}
+
+function stopWorkAgent(workId: string): boolean {
+  const agent = runningAgents.get(workId);
+  if (!agent) return false;
+  agent.kill();
+  runningAgents.delete(workId);
+  return true;
 }
 
 async function getEnvironment(store: WorkStore) {
@@ -245,6 +403,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .env-item { font-size: 0.8rem; padding: 4px 0; display: flex; gap: 8px; }
 .env-installed { color: var(--green); }
 .env-missing { color: var(--muted); }
+.builder-palette { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px; background: var(--surface); border-radius: 6px; border: 1px solid var(--border); }
+.builder-palette-item { background: var(--bg); border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; cursor: grab; font-size: 0.8rem; color: var(--text); user-select: none; }
+.builder-palette-item:hover { border-color: var(--accent); }
+.builder-canvas { min-height: 80px; padding: 12px; background: var(--bg); border: 2px dashed var(--border); border-radius: 6px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.builder-canvas.drag-over { border-color: var(--accent); background: #0c2d6b22; }
+.builder-stage { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; cursor: pointer; position: relative; min-width: 100px; }
+.builder-stage.selected { border-color: var(--accent); }
+.builder-stage .stage-name { font-size: 0.8rem; color: var(--accent); font-weight: 500; }
+.builder-stage .stage-backend { font-size: 0.7rem; color: var(--muted); }
+.builder-stage .stage-remove { position: absolute; top: -6px; right: -6px; background: var(--red); color: white; border: none; border-radius: 50%; width: 16px; height: 16px; font-size: 0.6rem; cursor: pointer; display: none; line-height: 16px; text-align: center; }
+.builder-stage:hover .stage-remove { display: block; }
+.builder-arrow { color: var(--muted); font-size: 1.2rem; }
+.builder-config { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+.builder-config label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; margin-top: 10px; }
+.builder-config input, .builder-config select, .builder-config textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; }
+.builder-config textarea { min-height: 60px; resize: vertical; }
+.builder-actions { display: flex; gap: 8px; margin-top: 16px; }
+.builder-actions button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; font-size: 0.8rem; }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-secondary { background: var(--surface); color: var(--text); }
 </style>
 </head>
 <body>
@@ -261,6 +439,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="nav-tabs">
     <div class="nav-tab active" id="nav-kanban" onclick="switchView('kanban')"><span id="lbl-kanban">看板</span></div>
     <div class="nav-tab" id="nav-pipelines" onclick="switchView('pipelines')"><span id="lbl-pipelines">流水线</span></div>
+    <div class="nav-tab" id="nav-builder" onclick="switchView('builder')"><span id="lbl-builder">编排</span></div>
     <div class="nav-tab" id="nav-env" onclick="switchView('env')"><span id="lbl-env">环境</span></div>
   </div>
   <div class="work-list" id="workList"></div>
@@ -394,9 +573,9 @@ let currentView = 'kanban';
 let currentLang = 'zh';
 
 const i18n = {
-  zh: { subtitle: '本地优先 AI 工作记录', kanban: '看板', pipelines: '流水线', env: '环境', overview: '概览', events: '事件', runlog: '运行日志', validation: '验证', plan: '计划', noWorks: '还没有任务', noEvents: '暂无事件', noRunLog: '暂无运行日志', noValidation: '暂无验证日志', noPlan: '暂无计划', total: '个任务', status: '状态', goal: '目标', owner: '负责人', assignee: '执行人', priority: '优先级', team: '团队', created: '创建时间', updated: '更新时间', acceptance: '验收标准', validationCmd: '验证命令', tasks: '子任务', changes: '变更', installed: '已安装', notInstalled: '未安装', plugins: '插件', config: '配置', defaultBackend: '默认后端', fallbackOrder: '降级顺序', routing: '路由' },
-  'zh-TW': { subtitle: '本地優先 AI 工作記錄', kanban: '看板', pipelines: '流水線', env: '環境', overview: '概覽', events: '事件', runlog: '運行日誌', validation: '驗證', plan: '計劃', noWorks: '還沒有任務', noEvents: '暫無事件', noRunLog: '暫無運行日誌', noValidation: '暫無驗證日誌', noPlan: '暫無計劃', total: '個任務', status: '狀態', goal: '目標', owner: '負責人', assignee: '執行人', priority: '優先級', team: '團隊', created: '創建時間', updated: '更新時間', acceptance: '驗收標準', validationCmd: '驗證命令', tasks: '子任務', changes: '變更', installed: '已安裝', notInstalled: '未安裝', plugins: '插件', config: '配置', defaultBackend: '默認後端', fallbackOrder: '降級順序', routing: '路由' },
-  en: { subtitle: 'Local-first AI work records', kanban: 'Kanban', pipelines: 'Pipelines', env: 'Environment', overview: 'Overview', events: 'Events', runlog: 'Run Log', validation: 'Validation', plan: 'Plan', noWorks: 'No works yet', noEvents: 'No events yet', noRunLog: 'No run log yet', noValidation: 'No validation log yet', noPlan: 'No plan yet', total: 'work(s)', status: 'Status', goal: 'Goal', owner: 'Owner', assignee: 'Assignee', priority: 'Priority', team: 'Team', created: 'Created', updated: 'Updated', acceptance: 'Acceptance', validationCmd: 'Validation', tasks: 'Tasks', changes: 'Changes', installed: 'installed', notInstalled: 'not installed', plugins: 'Plugins', config: 'Config', defaultBackend: 'Default backend', fallbackOrder: 'Fallback order', routing: 'Routing' },
+  zh: { subtitle: '本地优先 AI 工作记录', kanban: '看板', pipelines: '流水线', builder: '编排', env: '环境', overview: '概览', events: '事件', runlog: '运行日志', validation: '验证', plan: '计划', noWorks: '还没有任务', noEvents: '暂无事件', noRunLog: '暂无运行日志', noValidation: '暂无验证日志', noPlan: '暂无计划', total: '个任务', status: '状态', goal: '目标', owner: '负责人', assignee: '执行人', priority: '优先级', team: '团队', created: '创建时间', updated: '更新时间', acceptance: '验收标准', validationCmd: '验证命令', tasks: '子任务', changes: '变更', installed: '已安装', notInstalled: '未安装', plugins: '插件', config: '配置', defaultBackend: '默认后端', fallbackOrder: '降级顺序', routing: '路由' },
+  'zh-TW': { subtitle: '本地優先 AI 工作記錄', kanban: '看板', pipelines: '流水線', builder: '編排', env: '環境', overview: '概覽', events: '事件', runlog: '運行日誌', validation: '驗證', plan: '計劃', noWorks: '還沒有任務', noEvents: '暫無事件', noRunLog: '暫無運行日誌', noValidation: '暫無驗證日誌', noPlan: '暫無計劃', total: '個任務', status: '狀態', goal: '目標', owner: '負責人', assignee: '執行人', priority: '優先級', team: '團隊', created: '創建時間', updated: '更新時間', acceptance: '驗收標準', validationCmd: '驗證命令', tasks: '子任務', changes: '變更', installed: '已安裝', notInstalled: '未安裝', plugins: '插件', config: '配置', defaultBackend: '默認後端', fallbackOrder: '降級順序', routing: '路由' },
+  en: { subtitle: 'Local-first AI work records', kanban: 'Kanban', pipelines: 'Pipelines', builder: 'Builder', env: 'Environment', overview: 'Overview', events: 'Events', runlog: 'Run Log', validation: 'Validation', plan: 'Plan', noWorks: 'No works yet', noEvents: 'No events yet', noRunLog: 'No run log yet', noValidation: 'No validation log yet', noPlan: 'No plan yet', total: 'work(s)', status: 'Status', goal: 'Goal', owner: 'Owner', assignee: 'Assignee', priority: 'Priority', team: 'Team', created: 'Created', updated: 'Updated', acceptance: 'Acceptance', validationCmd: 'Validation', tasks: 'Tasks', changes: 'Changes', installed: 'installed', notInstalled: 'not installed', plugins: 'Plugins', config: 'Config', defaultBackend: 'Default backend', fallbackOrder: 'Fallback order', routing: 'Routing' },
 };
 
 function L(key) { return i18n[currentLang][key] || key; }
@@ -406,6 +585,7 @@ function setLang(lang) {
   document.getElementById('subtitle').textContent = L('subtitle');
   document.getElementById('lbl-kanban').textContent = L('kanban');
   document.getElementById('lbl-pipelines').textContent = L('pipelines');
+  document.getElementById('lbl-builder').textContent = L('builder');
   document.getElementById('lbl-env').textContent = L('env');
   document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-' + lang).classList.add('active');
@@ -418,6 +598,7 @@ function switchView(view) {
   document.getElementById('nav-' + view).classList.add('active');
   if (view === 'kanban') { loadWorks(); }
   else if (view === 'pipelines') { loadPipelines(); }
+  else if (view === 'builder') { loadBuilder(); }
   else if (view === 'env') { loadEnvironment(); }
 }
 
