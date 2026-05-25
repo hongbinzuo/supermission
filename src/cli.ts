@@ -1651,10 +1651,34 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       });
     });
 
-  // Default: if no command given, start the dashboard
+  // Default: if no command given, auto-init if needed then start dashboard
   if (argv.length === 0) {
-    const { startServer } = await import("./web.js");
     const store = storeFrom(program);
+
+    // Auto-init if no runners.yaml exists
+    const { readFile: readFs } = await import("node:fs/promises");
+    const { join: joinPath } = await import("node:path");
+    try {
+      await readFs(joinPath(store.repo, ".supermission", "runners.yaml"), "utf8");
+    } catch {
+      // Not initialized — run init first
+      console.log("First run detected. Initializing...\n");
+      const { detectAvailableBackends } = await import("./runner.js");
+      const available = await detectAvailableBackends();
+      const config = await store.readRunnerConfig();
+      await store.writeRunnerConfig({
+        ...config,
+        default_backend: available.length > 1 ? "auto" : available[0] ?? "shell",
+        fallback_order: available,
+        routing: {},
+      });
+      const { initPipelines } = await import("./pipeline.js");
+      await initPipelines(store.repo);
+      console.log(`Detected ${available.length} agent CLI(s): ${available.join(", ") || "none"}`);
+      console.log("Created pipeline templates.\n");
+    }
+
+    const { startServer } = await import("./web.js");
     await startServer({ port: 4000, repo: store.repo, open: true });
     return;
   }
