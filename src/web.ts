@@ -1,5 +1,6 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { exec } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { WorkStore } from "./store.js";
 import type { WorkSpec } from "./types.js";
 import { readTeamRegistry } from "./identity.js";
@@ -13,23 +14,23 @@ export type ServeOptions = {
 export async function startServer(options: ServeOptions): Promise<void> {
   const store = new WorkStore(options.repo);
 
-  const server = createServer(async (req, res) => {
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://localhost:${options.port}`);
 
     try {
       if (url.pathname === "/api/works") {
         const works = await getWorks(store);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(works));
+        json(res, works);
       } else if (url.pathname === "/api/team") {
         const registry = await readTeamRegistry(store.repo);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(registry ?? { identities: [] }));
+        json(res, registry ?? { identities: [] });
       } else if (url.pathname.startsWith("/api/work/")) {
-        const workId = url.pathname.slice("/api/work/".length);
+        const workId = decodeURIComponent(url.pathname.slice("/api/work/".length));
         const detail = await getWorkDetail(store, workId);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(detail));
+        json(res, detail);
+      } else if (url.pathname === "/api/config") {
+        const config = await store.readRunnerConfig();
+        json(res, config);
       } else {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(dashboardHtml(options.port));
@@ -42,11 +43,31 @@ export async function startServer(options: ServeOptions): Promise<void> {
   });
 
   server.listen(options.port, "127.0.0.1", () => {
-    console.log(`Supermission dashboard: http://localhost:${options.port}`);
+    console.log(`\n  ⚡ Supermission Dashboard`);
+    console.log(`  http://localhost:${options.port}\n`);
+    console.log(`  Press Ctrl+C to stop.\n`);
     if (options.open) {
       exec(`open http://localhost:${options.port}`);
     }
   });
+
+  // Graceful shutdown
+  process.on("SIGINT", () => {
+    server.close();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    server.close();
+    process.exit(0);
+  });
+}
+
+function json(res: ServerResponse, data: unknown): void {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+  });
+  res.end(JSON.stringify(data));
 }
 
 async function getWorks(store: WorkStore): Promise<WorkSpec[]> {
@@ -63,7 +84,17 @@ async function getWorkDetail(store: WorkStore, workId: string) {
   const tasks = await store.listTasks(workId);
   const events = await store.readEvents(workId);
   const changes = await store.listChanges(workId);
-  return { spec, tasks, events: events.slice(-20), changes };
+  const paths = store.paths(workId);
+
+  // Read artifacts
+  let runLog = "";
+  let validationLog = "";
+  let plan = "";
+  try { runLog = await readFile(paths.runLog, "utf8"); } catch { /* empty */ }
+  try { validationLog = await readFile(paths.validationLog, "utf8"); } catch { /* empty */ }
+  try { plan = await readFile(paths.plan, "utf8"); } catch { /* empty */ }
+
+  return { spec, tasks, events, changes, runLog, validationLog, plan };
 }
 
 function dashboardHtml(port: number): string {
@@ -74,133 +105,181 @@ function dashboardHtml(port: number): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Supermission Dashboard</title>
 <style>
+:root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --orange: #ffa657; --red: #f85149; --purple: #d2a8ff; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
-h1 { font-size: 1.5rem; margin-bottom: 8px; color: #58a6ff; }
-.subtitle { color: #8b949e; margin-bottom: 24px; font-size: 0.9rem; }
-.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 32px; }
-.column { background: #161b22; border-radius: 8px; padding: 12px; border: 1px solid #30363d; }
-.column-header { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; margin-bottom: 12px; display: flex; justify-content: space-between; }
-.column-header .count { background: #21262d; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
-.card { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
-.card:hover { border-color: #58a6ff; }
-.card-title { font-size: 0.85rem; color: #c9d1d9; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-meta { font-size: 0.75rem; color: #8b949e; }
-.card-assignee { color: #58a6ff; }
-.status-draft { border-left: 3px solid #8b949e; }
-.status-planned { border-left: 3px solid #d2a8ff; }
-.status-approved { border-left: 3px solid #79c0ff; }
-.status-running { border-left: 3px solid #ffa657; }
-.status-needs_review { border-left: 3px solid #f0883e; }
-.status-validated { border-left: 3px solid #56d364; }
-.status-completed { border-left: 3px solid #3fb950; }
-.status-failed { border-left: 3px solid #f85149; }
-.status-blocked { border-left: 3px solid #f85149; }
-.detail { display: none; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
-.detail.active { display: block; }
-.detail h2 { font-size: 1.1rem; color: #58a6ff; margin-bottom: 12px; }
-.detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 0.85rem; margin-bottom: 16px; }
-.detail-label { color: #8b949e; }
-.detail-value { color: #c9d1d9; }
-.events { max-height: 200px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; background: #0d1117; padding: 10px; border-radius: 4px; border: 1px solid #30363d; }
-.event-line { padding: 2px 0; color: #8b949e; }
-.event-type { color: #79c0ff; }
-.team-section { margin-top: 24px; }
-.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-.team-card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px; }
-.team-name { font-size: 0.85rem; color: #c9d1d9; }
-.team-role { font-size: 0.75rem; color: #8b949e; }
-.refresh-btn { position: fixed; top: 16px; right: 24px; background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
-.refresh-btn:hover { border-color: #58a6ff; }
-.empty { color: #8b949e; font-size: 0.85rem; text-align: center; padding: 40px; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+.sidebar { width: 280px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+.sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+.sidebar-header h1 { font-size: 1rem; color: var(--accent); }
+.sidebar-header .subtitle { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+.work-list { flex: 1; overflow-y: auto; }
+.work-item { padding: 10px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+.work-item:hover { background: var(--bg); }
+.work-item.active { background: var(--bg); border-left: 3px solid var(--accent); }
+.work-item .id { font-size: 0.75rem; color: var(--muted); }
+.work-item .goal { font-size: 0.85rem; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.work-item .meta { font-size: 0.7rem; color: var(--muted); margin-top: 4px; display: flex; gap: 8px; }
+.status-badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 8px; font-weight: 500; }
+.status-draft { background: #21262d; color: var(--muted); }
+.status-planned { background: #2d1f4e; color: var(--purple); }
+.status-approved { background: #0c2d6b; color: var(--accent); }
+.status-running { background: #3d2200; color: var(--orange); }
+.status-validated { background: #0f3d1a; color: var(--green); }
+.status-completed { background: #0f3d1a; color: var(--green); }
+.status-failed { background: #3d0f0f; color: var(--red); }
+.status-needs_review { background: #3d2200; color: var(--orange); }
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.main-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.main-header h2 { font-size: 1.1rem; }
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 16px; font-size: 0.8rem; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.detail-grid { display: grid; grid-template-columns: 100px 1fr; gap: 6px 16px; font-size: 0.85rem; margin-bottom: 20px; }
+.detail-label { color: var(--muted); }
+.log-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; line-height: 1.5; }
+.event-line { padding: 3px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; font-size: 0.8rem; }
+.event-time { color: var(--muted); min-width: 80px; font-family: monospace; font-size: 0.75rem; }
+.event-type { color: var(--accent); min-width: 140px; }
+.event-actor { color: var(--muted); }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty-state h3 { margin-bottom: 8px; color: var(--text); }
+.empty-state code { background: var(--surface); padding: 2px 6px; border-radius: 3px; font-size: 0.85rem; }
+.refresh-indicator { font-size: 0.7rem; color: var(--muted); }
 </style>
 </head>
 <body>
-<button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
-<h1>⚡ Supermission</h1>
-<p class="subtitle">Local-first work records for AI-assisted software delivery</p>
-
-<div id="detail" class="detail"></div>
-<div id="board" class="board"></div>
-<div id="team" class="team-section"></div>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>⚡ Supermission</h1>
+    <div class="subtitle">Local-first AI work records</div>
+  </div>
+  <div class="work-list" id="workList"></div>
+</div>
+<div class="main">
+  <div class="main-header">
+    <h2 id="mainTitle">Dashboard</h2>
+    <span class="refresh-indicator" id="refreshIndicator">auto-refresh: 3s</span>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="content" id="content"></div>
+</div>
 
 <script>
 const API = 'http://localhost:${port}';
-const COLUMNS = ['draft','planned','approved','running','needs_review','needs_decision','validated','completed','failed','blocked'];
+let selectedWork = null;
+let currentTab = 'overview';
 
-async function loadData() {
-  const [works, team] = await Promise.all([
-    fetch(API + '/api/works').then(r => r.json()),
-    fetch(API + '/api/team').then(r => r.json()),
-  ]);
-  renderBoard(works);
-  renderTeam(team);
+async function loadWorks() {
+  const works = await fetch(API + '/api/works').then(r => r.json());
+  renderWorkList(works);
+  if (!selectedWork && works.length > 0) selectWork(works[0].id);
+  else if (selectedWork) refreshDetail();
 }
 
-function renderBoard(works) {
-  const board = document.getElementById('board');
+function renderWorkList(works) {
+  const el = document.getElementById('workList');
   if (works.length === 0) {
-    board.innerHTML = '<div class="empty">No work records yet. Run: supermission new "Your task"</div>';
+    el.innerHTML = '<div class="empty-state"><h3>No works yet</h3><p>Run: <code>supermission new "Your task"</code></p></div>';
     return;
   }
-  const grouped = {};
-  for (const w of works) {
-    if (!grouped[w.status]) grouped[w.status] = [];
-    grouped[w.status].push(w);
-  }
-  const activeColumns = COLUMNS.filter(s => grouped[s]?.length > 0);
-  board.innerHTML = activeColumns.map(status => {
-    const items = grouped[status] || [];
-    return '<div class="column"><div class="column-header"><span>' + status.replace('_',' ') + '</span><span class="count">' + items.length + '</span></div>'
-      + items.map(w => '<div class="card status-' + w.status + '" onclick="showDetail(\\'' + w.id + '\\')">'
-        + '<div class="card-title">' + escHtml(w.goal) + '</div>'
-        + '<div class="card-meta">' + w.id.slice(0,20) + (w.assignee ? ' <span class=card-assignee>@' + w.assignee + '</span>' : '') + '</div>'
-        + '</div>').join('')
+  el.innerHTML = works.map(w => {
+    const active = selectedWork === w.id ? ' active' : '';
+    const assignee = w.assignee ? ' @' + w.assignee : '';
+    return '<div class="work-item' + active + '" onclick="selectWork(\\'' + w.id + '\\')">'
+      + '<div class="id">#' + w.id + assignee + ' <span class="status-badge status-' + w.status + '">' + w.status + '</span></div>'
+      + '<div class="goal">' + esc(w.goal) + '</div>'
+      + '<div class="meta"><span>' + w.priority + '</span><span>' + timeAgo(w.updated_at) + '</span></div>'
       + '</div>';
   }).join('');
 }
 
-async function showDetail(workId) {
-  const data = await fetch(API + '/api/work/' + workId).then(r => r.json());
+async function selectWork(id) {
+  selectedWork = id;
+  currentTab = 'overview';
+  await refreshDetail();
+  loadWorks(); // re-render to highlight
+}
+
+async function refreshDetail() {
+  if (!selectedWork) return;
+  const data = await fetch(API + '/api/work/' + selectedWork).then(r => r.json());
+  document.getElementById('mainTitle').textContent = '#' + data.spec.id + ' — ' + data.spec.goal;
+  renderTabs();
+  renderContent(data);
+}
+
+function renderTabs() {
+  const tabs = ['overview', 'events', 'run log', 'validation', 'plan'];
+  document.getElementById('tabs').innerHTML = tabs.map(t => {
+    const active = currentTab === t ? ' active' : '';
+    return '<div class="tab' + active + '" onclick="switchTab(\\'' + t + '\\')">' + t + '</div>';
+  }).join('');
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  refreshDetail();
+}
+
+function renderContent(data) {
+  const el = document.getElementById('content');
   const s = data.spec;
-  const el = document.getElementById('detail');
-  el.className = 'detail active';
-  el.innerHTML = '<h2>' + escHtml(s.goal) + '</h2>'
-    + '<div class="detail-grid">'
-    + row('ID', s.id) + row('Status', s.status) + row('Owner', s.owner)
-    + row('Assignee', s.assignee || '—') + row('Team', s.team || '—')
-    + row('Created', s.created_at) + row('Updated', s.updated_at)
-    + row('Acceptance', s.acceptance.length + ' criteria')
-    + row('Validation', s.validation_commands.length + ' commands')
-    + row('Tasks', data.tasks.length + ' task(s)')
-    + '</div>'
-    + '<h3 style="font-size:0.9rem;color:#8b949e;margin-bottom:8px">Recent Events</h3>'
-    + '<div class="events">' + data.events.map(e =>
-      '<div class="event-line"><span class="event-type">' + e.type + '</span> ' + e.actor + ' ' + e.time + '</div>'
-    ).join('') + '</div>';
+
+  if (currentTab === 'overview') {
+    el.innerHTML = '<div class="detail-grid">'
+      + row('Status', '<span class="status-badge status-' + s.status + '">' + s.status + '</span>')
+      + row('Goal', esc(s.goal))
+      + row('Owner', s.owner)
+      + row('Assignee', s.assignee || '—')
+      + row('Priority', s.priority || 'medium')
+      + row('Team', s.team || '—')
+      + row('Created', s.created_at)
+      + row('Updated', s.updated_at)
+      + row('Acceptance', s.acceptance.length > 0 ? s.acceptance.map(a => '• ' + esc(a)).join('<br>') : '—')
+      + row('Validation', s.validation_commands.length > 0 ? s.validation_commands.map(c => '<code>' + esc(c) + '</code>').join('<br>') : '—')
+      + row('Tasks', data.tasks.length + ' task(s)')
+      + row('Events', data.events.length + ' event(s)')
+      + row('Changes', data.changes.length + ' change(s)')
+      + '</div>';
+  } else if (currentTab === 'events') {
+    if (data.events.length === 0) {
+      el.innerHTML = '<div class="empty-state">No events yet</div>';
+      return;
+    }
+    el.innerHTML = data.events.slice().reverse().map(e => {
+      const time = e.time ? e.time.slice(11, 19) : '';
+      return '<div class="event-line"><span class="event-time">' + time + '</span><span class="event-type">' + e.type + '</span><span class="event-actor">' + e.actor + '</span></div>';
+    }).join('');
+  } else if (currentTab === 'run log') {
+    el.innerHTML = data.runLog ? '<div class="log-box">' + esc(data.runLog) + '</div>' : '<div class="empty-state">No run log yet</div>';
+  } else if (currentTab === 'validation') {
+    el.innerHTML = data.validationLog ? '<div class="log-box">' + esc(data.validationLog) + '</div>' : '<div class="empty-state">No validation log yet</div>';
+  } else if (currentTab === 'plan') {
+    el.innerHTML = data.plan ? '<div class="log-box">' + esc(data.plan) + '</div>' : '<div class="empty-state">No plan yet</div>';
+  }
 }
 
 function row(label, value) {
-  return '<div class="detail-label">' + label + '</div><div class="detail-value">' + escHtml(String(value)) + '</div>';
+  return '<div class="detail-label">' + label + '</div><div>' + value + '</div>';
 }
 
-function renderTeam(team) {
-  const el = document.getElementById('team');
-  if (!team.identities || team.identities.length === 0) {
-    el.innerHTML = '';
-    return;
-  }
-  el.innerHTML = '<h3 style="font-size:0.9rem;color:#8b949e;margin-bottom:12px">Team</h3>'
-    + '<div class="team-grid">' + team.identities.map(i =>
-      '<div class="team-card"><div class="team-name">' + escHtml(i.name) + '</div>'
-      + '<div class="team-role">' + i.kind + ' · ' + i.role + (i.backend ? ' · ' + i.backend : '') + '</div></div>'
-    ).join('') + '</div>';
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
 }
 
-function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-loadData();
-setInterval(loadData, 5000);
+loadWorks();
+setInterval(loadWorks, 3000);
 </script>
 </body>
 </html>`;
