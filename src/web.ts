@@ -31,6 +31,13 @@ export async function startServer(options: ServeOptions): Promise<void> {
       } else if (url.pathname === "/api/config") {
         const config = await store.readRunnerConfig();
         json(res, config);
+      } else if (url.pathname === "/api/pipelines") {
+        const { listPipelines } = await import("./pipeline.js");
+        const pipelines = await listPipelines(store.repo);
+        json(res, pipelines);
+      } else if (url.pathname === "/api/environment") {
+        const env = await getEnvironment(store);
+        json(res, env);
       } else {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(dashboardHtml(options.port));
@@ -77,6 +84,65 @@ async function getWorks(store: WorkStore): Promise<WorkSpec[]> {
     works.push(await store.readWork(id));
   }
   return works;
+}
+
+async function getEnvironment(store: WorkStore) {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { readdir } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const execFileAsync = promisify(execFile);
+  const home = (await import("node:os")).homedir();
+
+  // Detect agent CLIs
+  const agents = [
+    { name: "claude", cmd: "claude", versionFlag: "--version" },
+    { name: "codex", cmd: "codex", versionFlag: "--version" },
+    { name: "gemini", cmd: "gemini", versionFlag: "--version" },
+    { name: "aider", cmd: "aider", versionFlag: "--version" },
+    { name: "opencode", cmd: "opencode", versionFlag: "--version" },
+    { name: "copilot", cmd: "gh", versionFlag: "--version" },
+    { name: "amazon-q", cmd: "q", versionFlag: "--version" },
+    { name: "goose", cmd: "goose", versionFlag: "--version" },
+  ];
+
+  const clis: Array<{ name: string; version: string; installed: boolean }> = [];
+  for (const agent of agents) {
+    try {
+      const { stdout } = await execFileAsync(agent.cmd, [agent.versionFlag], { timeout: 3000 });
+      clis.push({ name: agent.name, version: stdout.trim().split("\n")[0], installed: true });
+    } catch {
+      clis.push({ name: agent.name, version: "", installed: false });
+    }
+  }
+
+  // Detect Codex plugins
+  const codexPlugins: string[] = [];
+  try {
+    const pluginDir = join(home, ".codex", ".tmp", "bundled-marketplaces", "openai-bundled", "plugins");
+    const entries = await readdir(pluginDir);
+    for (const entry of entries) codexPlugins.push(entry);
+  } catch { /* no plugins */ }
+
+  // Detect Claude plugins
+  let claudePlugins: string[] = [];
+  try {
+    const pluginFile = join(home, ".claude", "plugins", "installed_plugins.json");
+    const text = await (await import("node:fs/promises")).readFile(pluginFile, "utf8");
+    const data = JSON.parse(text);
+    if (data.plugins && typeof data.plugins === "object") {
+      claudePlugins = Object.keys(data.plugins);
+    }
+  } catch { /* no plugins */ }
+
+  // Runner config
+  const config = await store.readRunnerConfig();
+
+  return {
+    clis,
+    plugins: { codex: codexPlugins, claude: claudePlugins },
+    config: { default_backend: config.default_backend, fallback_order: config.fallback_order, routing: config.routing },
+  };
 }
 
 async function getWorkDetail(store: WorkStore, workId: string) {
@@ -147,13 +213,39 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .empty-state h3 { margin-bottom: 8px; color: var(--text); }
 .empty-state code { background: var(--surface); padding: 2px 6px; border-radius: 3px; font-size: 0.85rem; }
 .refresh-indicator { font-size: 0.7rem; color: var(--muted); }
+.nav-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.nav-tab { flex: 1; text-align: center; padding: 8px; font-size: 0.8rem; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.nav-tab:hover { color: var(--text); }
+.nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.lang-btn { background: var(--bg); border: 1px solid var(--border); color: var(--muted); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; }
+.lang-btn.active { color: var(--accent); border-color: var(--accent); }
+.pipeline-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+.pipeline-name { font-size: 0.9rem; color: var(--accent); margin-bottom: 4px; }
+.pipeline-desc { font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; }
+.pipeline-stages { display: flex; gap: 4px; flex-wrap: wrap; }
+.pipeline-stage { background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; color: var(--text); }
+.env-section { margin-bottom: 16px; }
+.env-title { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.env-item { font-size: 0.8rem; padding: 4px 0; display: flex; gap: 8px; }
+.env-installed { color: var(--green); }
+.env-missing { color: var(--muted); }
 </style>
 </head>
 <body>
 <div class="sidebar">
   <div class="sidebar-header">
     <h1>⚡ Supermission</h1>
-    <div class="subtitle">Local-first AI work records</div>
+    <div class="subtitle" id="subtitle">本地优先 AI 工作记录</div>
+    <div style="margin-top:8px;display:flex;gap:4px;">
+      <button class="lang-btn" onclick="setLang('zh')" id="btn-zh">中</button>
+      <button class="lang-btn" onclick="setLang('zh-TW')" id="btn-zh-TW">繁</button>
+      <button class="lang-btn" onclick="setLang('en')" id="btn-en">EN</button>
+    </div>
+  </div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" id="nav-kanban" onclick="switchView('kanban')"><span id="lbl-kanban">看板</span></div>
+    <div class="nav-tab" id="nav-pipelines" onclick="switchView('pipelines')"><span id="lbl-pipelines">流水线</span></div>
+    <div class="nav-tab" id="nav-env" onclick="switchView('env')"><span id="lbl-env">环境</span></div>
   </div>
   <div class="work-list" id="workList"></div>
 </div>

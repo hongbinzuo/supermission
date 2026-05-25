@@ -98,6 +98,7 @@ export const WorkTaskSchema = z.object({
   title: z.string().min(1),
   status: TaskStatusSchema,
   actor_role: z.string().min(1),
+  assignee: z.string().min(1).optional(),
   depends_on: z.array(z.string()).default([]),
   scope: z
     .object({
