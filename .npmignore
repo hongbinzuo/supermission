@@ -4,6 +4,8 @@
 !dist/
 !dist/**
 !docs/
+!docs/quick-start.md
+!docs/quick-start.zh-CN.md
 !docs/architecture/
 !docs/architecture/release-and-data-decisions.md
 !docs/evaluations/
