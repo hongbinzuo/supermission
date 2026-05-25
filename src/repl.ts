@@ -23,12 +23,16 @@ export async function startRepl(repo: string): Promise<void> {
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `> `,
+    prompt: `superm> `,
   });
 
-  const conversationHistory: string[] = [];
   let currentWorkId: string | null = null;
 
+  function updatePrompt(): void {
+    rl.setPrompt(currentWorkId ? `superm #${currentWorkId}> ` : `superm> `);
+  }
+
+  updatePrompt();
   rl.prompt();
 
   rl.on("line", async (line) => {
@@ -41,14 +45,17 @@ export async function startRepl(repo: string): Promise<void> {
 
     // Slash commands — superm features
     if (input.startsWith("/")) {
-      await handleSlashCommand(input, store, repo, rl);
+      const result = await handleSlashCommand(input, store, repo, currentWorkId, rl);
+      if (result.workId !== undefined) {
+        currentWorkId = result.workId;
+        updatePrompt();
+      }
       return;
     }
 
     // Everything else goes to the agent as a conversation
-    conversationHistory.push(input);
 
-    // Create a work record if first message
+    // Create a work record if no active work
     if (!currentWorkId) {
       const goal = input.length > 60 ? input.slice(0, 57) + "..." : input;
       currentWorkId = await store.createWork({
@@ -57,6 +64,7 @@ export async function startRepl(repo: string): Promise<void> {
         acceptance: [],
         validationCommands: [],
       });
+      updatePrompt();
       console.log(`  [work #${currentWorkId} created]\n`);
     }
 
@@ -70,28 +78,34 @@ export async function startRepl(repo: string): Promise<void> {
   });
 }
 
+type SlashResult = { workId?: string | null };
+
 async function handleSlashCommand(
   input: string,
   store: WorkStore,
   repo: string,
+  currentWorkId: string | null,
   rl: ReturnType<typeof createInterface>,
-): Promise<void> {
+): Promise<SlashResult> {
   const parts = input.slice(1).split(" ");
   const cmd = parts[0];
+  const arg = parts[1];
 
   switch (cmd) {
     case "help":
       console.log(`
   Slash commands:
-    /board          Show kanban board
-    /list           List all works
-    /status <id>    Show work status
-    /new "goal"     Create a new work record
-    /cost <id>      Show token cost
-    /info           Show environment
-    /pipeline       List pipelines
-    /quit           Exit superm
-    /clear          Start new conversation
+    /board              Show kanban board
+    /list               List all works
+    /use <id>           Switch to work #id (continue working on it)
+    /close [id]         Close current or specified work
+    /new "goal"         Create a new work record
+    /status [id]        Show work status
+    /cost [id]          Show token cost
+    /info               Show environment
+    /pipeline           List pipelines
+    /clear              Start new conversation (detach from current work)
+    /quit               Exit superm
 
   Everything else is sent directly to the agent.
 `);
@@ -103,9 +117,60 @@ async function handleSlashCommand(
       rl.close();
       process.exit(0);
       break;
-    case "clear":
-      console.log("  [New conversation started]\n");
+    case "use": {
+      if (!arg) {
+        console.log("  Usage: /use <id>");
+        break;
+      }
+      try {
+        const spec = await store.readWork(arg);
+        console.log(`  [switched to #${spec.id}: ${spec.goal}]\n`);
+        rl.prompt();
+        return { workId: arg };
+      } catch {
+        console.log(`  [work #${arg} not found]`);
+      }
       break;
+    }
+    case "close": {
+      const id = arg ?? currentWorkId;
+      if (!id) {
+        console.log("  No active work. Usage: /close <id>");
+        break;
+      }
+      try {
+        await store.updateStatus(id, "completed", "local-user", "Closed from REPL");
+        console.log(`  [#${id} closed]`);
+        if (id === currentWorkId) {
+          rl.prompt();
+          return { workId: null };
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(`  [error: ${msg}]`);
+      }
+      break;
+    }
+    case "clear":
+      console.log("  [Detached from current work. Start a new conversation.]\n");
+      rl.prompt();
+      return { workId: null };
+    case "new": {
+      const goal = parts.slice(1).join(" ").replace(/^["']|["']$/g, "");
+      if (!goal) {
+        console.log('  Usage: /new "goal description"');
+        break;
+      }
+      const newId = await store.createWork({
+        goal,
+        actor: "local-user",
+        acceptance: [],
+        validationCommands: [],
+      });
+      console.log(`  [work #${newId} created: ${goal}]\n`);
+      rl.prompt();
+      return { workId: newId };
+    }
     default:
       // Pass to superm CLI
       try {
@@ -118,6 +183,7 @@ async function handleSlashCommand(
       break;
   }
   rl.prompt();
+  return {};
 }
 
 async function runAgent(
@@ -126,7 +192,6 @@ async function runAgent(
   cwd: string,
   rl: ReturnType<typeof createInterface>,
 ): Promise<void> {
-  // Determine command based on backend
   let cmd: string;
   let args: string[];
 
