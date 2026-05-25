@@ -1733,23 +1733,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     await mkdirFs2(joinPath2(home, ".supermission-cli"), { recursive: true });
     await writeFs2(serverFile, JSON.stringify(serverInfo, null, 2), "utf8");
 
-    // Open browser
-    const { exec: execCmd } = await import("node:child_process");
-    execCmd("open http://localhost:4000");
-
-    console.log(`  ⚡ Supermission — ${projectName}`);
-    console.log("  Dashboard: http://localhost:4000");
-    if (Object.keys(serverInfo.repos).length > 1) {
-      console.log(`  Projects: ${Object.keys(serverInfo.repos).join(", ")}`);
-    }
-    console.log("");
-    console.log("  Commands:");
-    console.log("    superm quick \"your task\"              Run a task end-to-end");
-    console.log("    superm pipeline run feature \"goal\"    Multi-agent pipeline");
-    console.log("    superm board                          Kanban view");
-    console.log("    superm info                           Show environment");
-    console.log("    superm --help                         All commands");
-    console.log("");
+    // Start interactive REPL (with dashboard URL shown)
+    const { startRepl } = await import("./repl.js");
+    await startRepl(store.repo);
     return;
   }
 
