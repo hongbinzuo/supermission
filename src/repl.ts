@@ -51,6 +51,13 @@ export async function startRepl(repo: string): Promise<void> {
       return;
     }
 
+    // Handle exit/quit without slash
+    if (input === "exit" || input === "quit" || input === "q") {
+      console.log("Bye!");
+      rl.close();
+      process.exit(0);
+    }
+
     // Slash commands — superm features
     if (input.startsWith("/")) {
       const result = await handleSlashCommand(input, store, repo, currentWorkId, rl);
@@ -180,16 +187,22 @@ async function handleSlashCommand(
       rl.prompt();
       return { workId: newId };
     }
-    default:
-      // Pass to superm CLI
-      try {
-        await runCli([...parts, "--repo", repo]);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error(`  error: ${msg}`);
+    default: {
+      // Check if it's a known superm command (board, list, status, cost, info, pipeline)
+      const knownCommands = ["board", "list", "status", "cost", "info", "pipeline", "tasks", "trace", "summary", "doctor"];
+      if (knownCommands.includes(cmd)) {
+        try {
+          await runCli([...parts, "--repo", repo]);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.error(`  error: ${msg}`);
+        }
+      } else {
+        console.log(`  Unknown command: /${cmd}. Type / to see available commands.`);
       }
       console.log("");
       break;
+    }
   }
   rl.prompt();
   return {};
