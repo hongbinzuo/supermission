@@ -1,0 +1,28 @@
+name: deploy
+description: "Full pipeline with deployment: plan → code → test → review → deploy"
+stages:
+  - id: plan
+    role: planner-agent
+    prompt: Break down this work into implementation steps.
+    gate: approve_plan
+    skip_on_fail: false
+  - id: code
+    role: worker-agent
+    prompt: Implement according to the plan.
+    skip_on_fail: false
+  - id: test
+    role: tester-agent
+    prompt: Write and run tests.
+    validation: bun run test
+    skip_on_fail: false
+  - id: review
+    role: reviewer-agent
+    prompt: Review code changes for quality and security.
+    gate: approve_review
+    skip_on_fail: false
+  - id: deploy
+    role: deploy-agent
+    backend: shell
+    command: "echo 'deploy step: configure your deploy command in
+      .supermission/pipelines/deploy.yaml'"
+    skip_on_fail: false

@@ -1,0 +1,25 @@
+name: feature
+description: "Standard feature pipeline: plan → code → test → review"
+stages:
+  - id: plan
+    role: planner-agent
+    prompt: Break down this feature into clear implementation steps. Output a
+      numbered plan.
+    gate: approve_plan
+    skip_on_fail: false
+  - id: code
+    role: worker-agent
+    prompt: Implement the feature according to the approved plan. Make minimal,
+      focused changes.
+    skip_on_fail: false
+  - id: test
+    role: tester-agent
+    prompt: Write comprehensive tests for the implementation. Cover edge cases.
+    validation: bun run test
+    skip_on_fail: false
+  - id: review
+    role: reviewer-agent
+    prompt: Review all code changes. Report any issues, security concerns, or
+      improvements needed.
+    gate: approve_review
+    skip_on_fail: false
