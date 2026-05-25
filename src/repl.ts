@@ -83,16 +83,51 @@ export async function startRepl(repo: string): Promise<void> {
     console.log(`  [entering ${backend} session — Ctrl+D or /exit to return]\n`);
     rl.pause();
 
+    const startedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    const started = performance.now();
     const exitCode = await launchAgentSession(backend, input, repo);
+    const durationMs = Math.round(performance.now() - started);
+    const finishedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
-    console.log(`\n  [${backend} session ended (exit ${exitCode})]`);
+    console.log(`\n  [${backend} session ended (exit ${exitCode}, ${(durationMs / 1000).toFixed(1)}s)]`);
 
     // Record evidence
     await store.appendEvent(currentWorkId, "agent.session", "local-user", {
       backend,
       exit_code: exitCode,
+      duration_ms: durationMs,
       initial_prompt: input,
     });
+
+    // Write run log
+    const { writeFile } = await import("node:fs/promises");
+    const runLogPath = store.paths(currentWorkId).runLog;
+    const runLog = [
+      "# Run",
+      "",
+      `Work: ${currentWorkId}`,
+      `Actor: local-user`,
+      `Backend: ${backend}`,
+      `Mode: interactive session`,
+      `Started: ${startedAt}`,
+      `Finished: ${finishedAt}`,
+      `Exit code: ${exitCode}`,
+      `Duration: ${durationMs}ms`,
+      "",
+      "## Initial Prompt",
+      "",
+      "```text",
+      input,
+      "```",
+      "",
+      "## Note",
+      "",
+      "This was an interactive session (stdio:inherit).",
+      "Full conversation happened in the terminal.",
+      "Agent had full control of stdin/stdout.",
+      "",
+    ].join("\n");
+    await writeFile(runLogPath, runLog, "utf8");
 
     rl.resume();
     rl.setPrompt(prompt());
