@@ -260,17 +260,29 @@ describe("WorkStore", () => {
     await withTempRepo(async (repo) => {
       const store = new WorkStore(repo);
       await expect(store.readRunnerConfig()).resolves.toEqual({
-        default_backend: "record",
+        default_backend: "auto",
+        fallback_order: [],
+        routing: {},
         backends: {
           record: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           shell: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           codex: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           claude: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          gemini: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          aider: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          opencode: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          copilot: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          "amazon-q": { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          goose: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          kiro: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          grok: { fallback_profiles: [], tools: [], retry: defaultRetry() },
         },
       });
 
       await store.writeRunnerConfig({
         default_backend: "shell",
+        fallback_order: [],
+        routing: {},
         backends: {
           record: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           shell: {
@@ -287,6 +299,14 @@ describe("WorkStore", () => {
             retry: { attempts: 2, delay_ms: 0, exit_codes: [1, 124] },
           },
           claude: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          gemini: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          aider: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          opencode: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          copilot: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          "amazon-q": { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          goose: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          kiro: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          grok: { fallback_profiles: [], tools: [], retry: defaultRetry() },
         },
       });
 

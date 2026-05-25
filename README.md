@@ -53,6 +53,105 @@ repo-native records, linear code mutations, and strong tests.
 The core engine stays runner-neutral. Model runtimes live behind runner/adapter
 layers and are optional per work record.
 
+## Multi-Agent Pipeline System
+
+Supermission supports YAML-defined multi-agent pipelines where each stage can
+use a different AI agent CLI. Built-in templates:
+
+- `feature` — plan → code → test → review
+- `bugfix` — reproduce → fix → verify
+- `deploy` — plan → code → test → review → deploy
+
+```bash
+supermission pipeline init                              # Create templates
+supermission pipeline run feature "Add OAuth2 login"    # Run end-to-end
+supermission pipeline run bugfix "Fix null pointer"     # Quick bugfix
+supermission pipeline batch feature "Feature A" "Feature B"  # Multiple features
+```
+
+Custom pipelines are simple YAML files in `.supermission/pipelines/`:
+
+```yaml
+name: my-pipeline
+stages:
+  - id: plan
+    role: planner-agent
+    backend: gemini
+    prompt: "Break down this feature"
+    gate: approve_plan
+  - id: code
+    role: worker-agent
+    backend: claude
+    prompt: "Implement the feature"
+  - id: test
+    role: tester-agent
+    backend: codex
+    validation: "bun run test"
+```
+
+## Supported Agent Backends
+
+Supermission supports 12 runner backends with smart selection and fallback:
+
+| Backend | CLI | Description |
+|---------|-----|-------------|
+| `shell` | any | Execute local shell commands |
+| `claude` | `claude` | Anthropic Claude Code |
+| `codex` | `codex` | OpenAI Codex |
+| `gemini` | `gemini` | Google Gemini CLI |
+| `aider` | `aider` | Aider AI pair programming |
+| `opencode` | `opencode` | OpenCode terminal agent |
+| `copilot` | `gh` | GitHub Copilot CLI |
+| `amazon-q` | `q` | Amazon Q Developer |
+| `goose` | `goose` | Block Goose agent |
+| `kiro` | `kiro` | AWS Kiro CLI |
+| `grok` | `grok` | xAI Grok CLI |
+| `record` | — | Record external/manual runs |
+
+Smart selection auto-detects installed CLIs and routes by role:
+
+```yaml
+# .supermission/runners.yaml
+default_backend: auto
+fallback_order: [claude, codex, gemini]
+routing:
+  planner-agent: gemini
+  worker-agent: claude
+  tester-agent: codex
+  reviewer-agent: gemini
+```
+
+## Team Collaboration
+
+Git-native collaboration without requiring a server:
+
+```bash
+supermission team init
+supermission team add --name "Alice" --role lead
+supermission team add --name "Bob" --role developer
+supermission team add --name "Codex Worker" --kind agent --role agent --backend codex
+
+supermission new "Fix login bug" --assign bob
+supermission board                    # Kanban view with assignees
+supermission board --mine             # My assigned work only
+supermission assign work-001 --to alice
+```
+
+Team state syncs through git push/pull. No server needed for small teams.
+
+## Cost Tracking
+
+```bash
+supermission cost work-001            # Token usage, runtime, cost estimate per backend
+```
+
+## Web Dashboard
+
+```bash
+supermission serve                    # Start local dashboard at http://localhost:4000
+supermission serve --port 8080 --open # Custom port, auto-open browser
+```
+
 ## Product Shape
 
 Supermission should not replace Codex, Claude Code, or IDE coding agents. The
@@ -77,18 +176,23 @@ enough to use repeatedly during a coding session.
 
 ## Installation & Release Status
 
-Supermission is not published yet.
+Supermission is not published to npm yet but can be installed via script.
 
-- `package.json` is currently marked `"private": true`.
-- Target npm package name: `@hongbinzuo/supermission`. The unscoped
-  `supermission` name is already occupied on npm.
-- There is no published npm, Homebrew, Docker, or binary release channel yet.
-- Current install path is local development from this repository.
-- Recommended first public release path is npm package, then GitHub Releases.
-  Homebrew and Docker should wait until CLI contracts and runner config are
-  stable.
-- Release and data decisions are tracked in
-  [`docs/architecture/release-and-data-decisions.md`](./docs/architecture/release-and-data-decisions.md).
+Quick install (macOS/Linux):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hongbinzuo/supermission/main/scripts/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/hongbinzuo/supermission/main/scripts/install.ps1 | iex
+```
+
+The install script auto-detects your system, installs Bun if needed, clones the
+repo, builds, and creates a symlink. It also detects which agent CLIs you have
+installed.
 
 Local development:
 
@@ -98,18 +202,13 @@ bun run build
 bin/supermission --help
 ```
 
-Release packaging dry run:
+First-time project setup:
 
 ```bash
-bun run build
-npm pack --dry-run
-```
-
-Once published, the intended npm install path is:
-
-```bash
-npm install -g @hongbinzuo/supermission
-supermission --help
+cd your-project
+supermission init                    # Auto-detect agent CLIs, set defaults
+supermission pipeline init           # Create pipeline templates
+supermission quick "Your first task" # Run end-to-end
 ```
 
 ## Execution Model
@@ -328,6 +427,31 @@ Runner diagnostics:
 - `supermission runner config show`
 - `supermission runner smoke`
 
+Multi-agent pipelines:
+
+- `supermission pipeline init`
+- `supermission pipeline list`
+- `supermission pipeline show`
+- `supermission pipeline run`
+- `supermission pipeline batch`
+
+Team collaboration:
+
+- `supermission team init`
+- `supermission team add`
+- `supermission team remove`
+- `supermission team list`
+- `supermission assign`
+- `supermission release`
+
+Project setup and observability:
+
+- `supermission init`
+- `supermission quick`
+- `supermission board`
+- `supermission cost`
+- `supermission serve`
+
 Git evidence and isolation:
 
 - `supermission diff`
@@ -352,13 +476,14 @@ and release docs current.
 
 | Milestone | Focus                                                                                                                                                  | Current status |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
-| V0        | Local-first work records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                                 | In progress    |
-| V0.5      | Unified runner layer across record, shell, Codex, and Claude Code; real integration smoke tests with explicit credentials/profile setup                | In progress    |
-| V0.6      | Requirements analysis, local capability evals, plugin/component boundaries for runners, validators, artifact writers, policies, and workflow templates | In progress    |
-| V0.7      | Agent footprint maps, result evaluation records, reusable eval sets, stronger Git/worktree isolation, task queues, merge checkpoints                   | Planned        |
-| V1        | Terminal TUI over the same engine, no duplicated work logic                                                                                            | Planned        |
-| V1.5      | Editor adapters after CLI/TUI contracts stabilize                                                                                                      | Planned        |
-| V2        | Open-source extension points, package/release pipeline, and documented compatibility targets                                                           | Planned        |
+| V0        | Local-first work records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                                 | Done           |
+| V0.5      | Unified runner layer: 12 backends (shell, codex, claude, gemini, aider, opencode, copilot, amazon-q, goose, kiro, grok); smart selection and fallback  | Done           |
+| V0.6      | Multi-agent pipelines, team collaboration, assignment, board view, cost tracking, web dashboard, install scripts                                        | Done           |
+| V0.7      | Project management (milestones, cycles, priorities), Linear/Jira/GitHub integration, import/export                                                     | In progress    |
+| V0.8      | Notifications (inbox, webhooks), lock manager, conflict detection, coordination index                                                                  | Planned        |
+| V1        | Terminal TUI (React Ink), polished web dashboard, streaming runner progress                                                                             | Planned        |
+| V1.5      | Editor adapters (VS Code, Kiro), persistent agent memory                                                                                               | Planned        |
+| V2        | Open-source extension points, npm publish, Homebrew, documented compatibility targets                                                                  | Planned        |
 
 Primary baseline: Factory Missions-style collaborative planning, milestone
 execution, and validation. Supermission is the open-source, local-first version

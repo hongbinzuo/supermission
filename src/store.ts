@@ -45,6 +45,7 @@ export type CreateWorkInput = {
   actor: string;
   acceptance: string[];
   validationCommands: string[];
+  assignee?: string;
 };
 
 export type ValidationResult = {
@@ -216,7 +217,7 @@ export class WorkStore {
   async createWork(input: CreateWorkInput): Promise<string> {
     const now = utcNow();
     const stamp = now.replace(/[-:TZ]/g, "").slice(0, 14);
-    const workId = input.id ?? `${stamp}-${slugify(input.goal)}`;
+    const workId = input.id ? sanitizeId(input.id) : `${stamp}-${slugify(input.goal)}`;
     const paths = this.paths(workId);
 
     if (await exists(paths.root)) {
@@ -233,12 +234,16 @@ export class WorkStore {
       goal: input.goal,
       status: "draft",
       owner: input.actor,
+      assignee: input.assignee,
       created_at: now,
       updated_at: now,
       acceptance: input.acceptance,
       validation_commands: input.validationCommands,
       workflow: DEFAULT_WORKFLOW,
       actors: DEFAULT_ACTORS,
+      depends_on: [],
+      priority: "medium",
+      labels: [],
     };
 
     await this.writeWork(spec);
@@ -2511,4 +2516,21 @@ async function gitOutput(repo: string, args: string[], allowedExitCodes = [0]): 
       }
     });
   });
+}
+
+function sanitizeId(id: string): string {
+  // Prevent path traversal: strip .., /, \, and null bytes
+  const sanitized = id
+    .replace(/\.\./g, "")
+    .replace(/[/\\]/g, "-")
+    .replace(/\0/g, "")
+    .replace(/^-+|-+$/g, "")
+    .trim();
+  if (sanitized.length === 0) {
+    throw new Error("invalid work id: must contain at least one valid character");
+  }
+  if (sanitized.length > 128) {
+    throw new Error("invalid work id: must be 128 characters or fewer");
+  }
+  return sanitized;
 }

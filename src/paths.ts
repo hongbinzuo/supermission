@@ -14,6 +14,7 @@ export function workPaths(repo: string, workId: string) {
     changes: join(root, "changes"),
     checkpoints: join(root, "checkpoints"),
     work: join(root, "work.yaml"),
+    lock: join(root, "lock.yaml"),
     events: join(root, "events.jsonl"),
     telemetry: join(root, "telemetry.jsonl"),
     toolCalls: join(root, "tool-calls.jsonl"),
@@ -32,4 +33,22 @@ export function workPaths(repo: string, workId: string) {
     handoff: join(root, "handoff.md"),
     patch: join(root, "patch.diff"),
   };
+}
+
+export type CollaborationPaths = ReturnType<typeof collaborationPaths>;
+
+export function collaborationPaths(repo: string) {
+  const root = join(repo, WORK_ROOT);
+  return {
+    root,
+    team: join(root, "team.yaml"),
+    workspace: join(root, "workspace.yaml"),
+    sync: join(root, "sync.yaml"),
+    inbox: join(root, "inbox"),
+    webhookQueue: join(root, "webhook-queue.jsonl"),
+  };
+}
+
+export function inboxPath(repo: string, identityId: string): string {
+  return join(repo, WORK_ROOT, "inbox", `${identityId}.jsonl`);
 }
