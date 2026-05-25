@@ -1694,8 +1694,29 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       console.log("Created pipeline templates.\n");
     }
 
-    const { startServer } = await import("./web.js");
-    await startServer({ port: 4000, repo: store.repo, open: true });
+    // Start dashboard in background, keep CLI interactive
+    const { spawn: spawnChild } = await import("node:child_process");
+    const serverProcess = spawnChild(process.execPath, [process.argv[1], "serve", "--port", "4000"], {
+      cwd: store.repo,
+      stdio: "ignore",
+      detached: true,
+    });
+    serverProcess.unref();
+
+    // Open browser
+    const { exec: execCmd } = await import("node:child_process");
+    execCmd("open http://localhost:4000");
+
+    console.log("  ⚡ Supermission");
+    console.log("  Dashboard: http://localhost:4000");
+    console.log("");
+    console.log("  Commands:");
+    console.log("    supermission quick \"your task\"         Run a task end-to-end");
+    console.log("    supermission pipeline run feature \"goal\"  Multi-agent pipeline");
+    console.log("    supermission board                     Kanban view");
+    console.log("    supermission info                      Show environment");
+    console.log("    supermission --help                    All commands");
+    console.log("");
     return;
   }
 
