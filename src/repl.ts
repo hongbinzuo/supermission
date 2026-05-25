@@ -12,7 +12,7 @@ export async function startRepl(repo: string): Promise<void> {
   const store = new WorkStore(repo);
   const config = await store.readRunnerConfig();
   const available = await detectAvailableBackends();
-  const backend = resolveBackend(config, { available });
+  let backend = resolveBackend(config, { available });
 
   console.log(`  ⚡ Supermission — ${projectName}`);
   console.log(`  Agent: ${backend}`);
@@ -56,6 +56,18 @@ export async function startRepl(repo: string): Promise<void> {
 
     // Slash commands
     if (input.startsWith("/")) {
+      // Handle /backend inline (needs to modify outer variable)
+      if (input.startsWith("/backend ")) {
+        const newBackend = input.slice("/backend ".length).trim();
+        if (newBackend) {
+          backend = newBackend as typeof backend;
+          console.log(`  [Agent 切换为: ${backend}]`);
+        } else {
+          console.log(`  当前 Agent: ${backend}`);
+        }
+        rl.prompt();
+        return;
+      }
       const result = await handleSlash(input, store, repo, currentWorkId);
       if (result.newWorkId !== undefined) {
         currentWorkId = result.newWorkId;
@@ -79,13 +91,24 @@ export async function startRepl(repo: string): Promise<void> {
       console.log(`  [work #${currentWorkId} created]`);
     }
 
+    // Build prompt with work context if resuming
+    let agentPrompt = input;
+    const spec = await store.readWork(currentWorkId);
+    if (spec.status !== "draft") {
+      // Resuming existing work — give agent context
+      agentPrompt = `[Work #${spec.id}] Goal: ${spec.goal}\n`
+        + (spec.acceptance.length > 0 ? `Acceptance: ${spec.acceptance.join("; ")}\n` : "")
+        + `Status: ${spec.status}\n`
+        + `\nUser request: ${input}`;
+    }
+
     // Launch agent in full interactive mode (Option A)
     console.log(`  [entering ${backend} session — Ctrl+D or /exit to return]\n`);
     rl.pause();
 
     const startedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
     const started = performance.now();
-    const exitCode = await launchAgentSession(backend, input, repo);
+    const exitCode = await launchAgentSession(backend, agentPrompt, repo);
     const durationMs = Math.round(performance.now() - started);
     const finishedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
