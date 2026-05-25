@@ -28,7 +28,8 @@
     "project-management"
   ],
   "bin": {
-    "supermission": "./bin/supermission"
+    "supermission": "./bin/supermission",
+    "superm": "./bin/supermission"
   },
   "scripts": {
     "build": "tsup src/cli.ts --format esm --dts --clean --out-dir dist",
