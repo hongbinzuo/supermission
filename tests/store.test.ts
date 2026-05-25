@@ -148,7 +148,7 @@ describe("WorkStore", () => {
     });
   });
 
-  it("generates timestamped work ids when no explicit id is provided", async () => {
+  it("generates sequential numeric work ids when no explicit id is provided", async () => {
     await withTempRepo(async (repo) => {
       const store = new WorkStore(repo);
       const workId = await store.createWork({
@@ -158,11 +158,19 @@ describe("WorkStore", () => {
         validationCommands: [],
       });
 
-      expect(workId).toMatch(/^\d{14}-ship-login-flow$/);
+      expect(workId).toBe("1");
       await expect(store.readWork(workId)).resolves.toMatchObject({
         id: workId,
         goal: "Ship Login Flow!",
       });
+
+      const workId2 = await store.createWork({
+        goal: "Second task",
+        actor: "local-user",
+        acceptance: [],
+        validationCommands: [],
+      });
+      expect(workId2).toBe("2");
     });
   });
 

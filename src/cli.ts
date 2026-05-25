@@ -371,18 +371,33 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--retry-attempts <count>", "Runner attempts", parseInteger)
     .option("--retry-delay-ms <ms>", "Delay between retry attempts", parseNonNegativeInteger)
     .option("--retry-exit-code <code>", "Exit code that should be retried", collectInteger, [])
+    .option("--stream", "Stream agent output to terminal (no interaction)")
+    .option("--silent", "Run silently, capture output only (no terminal output)")
     .action(
       async (
         workId: string,
         options: RunnerCliOptions & {
           actor: string;
           note?: string;
+          stream?: boolean;
+          interactive?: boolean;
+          silent?: boolean;
         },
       ) => {
         const store = storeFrom(program);
         const runnerConfig = await store.readRunnerConfig();
         const backend: RunnerBackend = options.backend ?? (runnerConfig.default_backend === "auto" ? "record" : runnerConfig.default_backend);
         const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
+        // Default: interactive. --silent disables it. --stream is middle ground.
+        if (options.silent) {
+          mergedOptions.stream = false;
+          mergedOptions.interactive = false;
+        } else if (options.stream) {
+          mergedOptions.stream = true;
+          mergedOptions.interactive = false;
+        } else {
+          mergedOptions.interactive = true;
+        }
 
         if (backend === "record") {
           await store.recordRun(workId, options.actor, options.note);
