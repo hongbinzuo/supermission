@@ -1,6 +1,6 @@
 {
   "name": "@hongbinzuo/supermission",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Local-first work records for AI-assisted software work. Multi-agent pipelines, team collaboration, 12 runner backends.",
   "type": "module",
   "license": "Apache-2.0",
