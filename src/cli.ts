@@ -1651,6 +1651,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       });
     });
 
+  // Default: if no command given, start the dashboard
+  if (argv.length === 0) {
+    const { startServer } = await import("./web.js");
+    const store = storeFrom(program);
+    await startServer({ port: 4000, repo: store.repo, open: true });
+    return;
+  }
+
   await program.parseAsync(argv, { from: "user" });
 }
 
