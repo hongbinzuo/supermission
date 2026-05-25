@@ -459,10 +459,13 @@ let selectedWork = null;
 let currentTab = 'overview';
 
 async function loadWorks() {
+  if (currentView !== 'kanban') return;
   const works = await fetch(API + '/api/works').then(r => r.json());
   renderWorkList(works);
+  document.getElementById('mainTitle').textContent = L('kanban');
   if (!selectedWork && works.length > 0) selectWork(works[0].id);
   else if (selectedWork) refreshDetail();
+  else { document.getElementById('content').innerHTML = '<div class="empty-state"><h3>' + L('noWorks') + '</h3><p>superm> /new "your task"</p></div>'; document.getElementById('tabs').innerHTML = ''; }
 }
 
 function renderWorkList(works) {
@@ -498,10 +501,16 @@ async function refreshDetail() {
 }
 
 function renderTabs() {
-  const tabs = ['overview', 'events', 'run log', 'validation', 'plan'];
+  const tabs = [
+    { key: 'overview', label: L('overview') },
+    { key: 'events', label: L('events') },
+    { key: 'run log', label: L('runlog') },
+    { key: 'validation', label: L('validation') },
+    { key: 'plan', label: L('plan') },
+  ];
   document.getElementById('tabs').innerHTML = tabs.map(t => {
-    const active = currentTab === t ? ' active' : '';
-    return '<div class="tab' + active + '" onclick="switchTab(\\'' + t + '\\')">' + t + '</div>';
+    const active = currentTab === t.key ? ' active' : '';
+    return '<div class="tab' + active + '" onclick="switchTab(\\'' + t.key + '\\')">' + t.label + '</div>';
   }).join('');
 }
 
@@ -516,24 +525,24 @@ function renderContent(data) {
 
   if (currentTab === 'overview') {
     el.innerHTML = '<div class="detail-grid">'
-      + row('Status', '<span class="status-badge status-' + s.status + '">' + s.status + '</span>')
-      + row('Goal', esc(s.goal))
-      + row('Owner', s.owner)
-      + row('Assignee', s.assignee || '—')
-      + row('Priority', s.priority || 'medium')
-      + row('Team', s.team || '—')
-      + row('Created', s.created_at)
-      + row('Updated', s.updated_at)
-      + row('Acceptance', s.acceptance.length > 0 ? s.acceptance.map(a => '• ' + esc(a)).join('<br>') : '—')
-      + row('Validation', s.validation_commands.length > 0 ? s.validation_commands.map(c => '<code>' + esc(c) + '</code>').join('<br>') : '—')
-      + row('Tasks', data.tasks.length + ' task(s)')
-      + row('Events', data.events.length + ' event(s)')
-      + row('Changes', data.changes.length + ' change(s)')
+      + row(L('status'), '<span class="status-badge status-' + s.status + '">' + s.status + '</span>')
+      + row(L('goal'), esc(s.goal))
+      + row(L('owner'), s.owner)
+      + row(L('assignee'), s.assignee || '—')
+      + row(L('priority'), s.priority || 'medium')
+      + row(L('team'), s.team || '—')
+      + row(L('created'), s.created_at)
+      + row(L('updated'), s.updated_at)
+      + row(L('acceptance'), s.acceptance.length > 0 ? s.acceptance.map(a => '• ' + esc(a)).join('<br>') : '—')
+      + row(L('validationCmd'), s.validation_commands.length > 0 ? s.validation_commands.map(c => '<code>' + esc(c) + '</code>').join('<br>') : '—')
+      + row(L('tasks'), data.tasks.length + '')
+      + row(L('events'), data.events.length + '')
+      + row(L('changes'), data.changes.length + '')
       + '</div>'
       + renderActions(s.id, s.status);
   } else if (currentTab === 'events') {
     if (data.events.length === 0) {
-      el.innerHTML = '<div class="empty-state">No events yet</div>';
+      el.innerHTML = '<div class="empty-state">' + L('noEvents') + '</div>';
       return;
     }
     el.innerHTML = data.events.slice().reverse().map(e => {
@@ -541,11 +550,11 @@ function renderContent(data) {
       return '<div class="event-line"><span class="event-time">' + time + '</span><span class="event-type">' + e.type + '</span><span class="event-actor">' + e.actor + '</span></div>';
     }).join('');
   } else if (currentTab === 'run log') {
-    el.innerHTML = data.runLog ? '<div class="log-box">' + esc(data.runLog) + '</div>' : '<div class="empty-state">No run log yet</div>';
+    el.innerHTML = data.runLog && data.runLog.trim() ? '<div class="log-box">' + esc(data.runLog) + '</div>' : '<div class="empty-state">' + L('noRunLog') + '</div>';
   } else if (currentTab === 'validation') {
-    el.innerHTML = data.validationLog ? '<div class="log-box">' + esc(data.validationLog) + '</div>' : '<div class="empty-state">No validation log yet</div>';
+    el.innerHTML = data.validationLog && data.validationLog.trim() ? '<div class="log-box">' + esc(data.validationLog) + '</div>' : '<div class="empty-state">' + L('noValidation') + '</div>';
   } else if (currentTab === 'plan') {
-    el.innerHTML = data.plan ? '<div class="log-box">' + esc(data.plan) + '</div>' : '<div class="empty-state">No plan yet</div>';
+    el.innerHTML = data.plan && data.plan.trim() ? '<div class="log-box">' + esc(data.plan) + '</div>' : '<div class="empty-state">' + L('noPlan') + '</div>';
   }
 }
 
@@ -567,7 +576,7 @@ function timeAgo(iso) {
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 loadWorks();
-setInterval(loadWorks, 3000);
+setInterval(() => { if (currentView === 'kanban') loadWorks(); }, 3000);
 
 let currentView = 'kanban';
 let currentLang = 'zh';
@@ -596,6 +605,12 @@ function switchView(view) {
   currentView = view;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('nav-' + view).classList.add('active');
+  // Clear both panels before loading new view
+  document.getElementById('workList').innerHTML = '';
+  document.getElementById('content').innerHTML = '';
+  document.getElementById('tabs').innerHTML = '';
+  document.getElementById('mainTitle').textContent = '';
+  selectedWork = null;
   if (view === 'kanban') { loadWorks(); }
   else if (view === 'pipelines') { loadPipelines(); }
   else if (view === 'builder') { loadBuilder(); }
