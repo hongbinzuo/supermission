@@ -622,6 +622,78 @@ async function loadPipelines() {
   ).join('');
 }
 
+async function loadBuilder() {
+  const el = document.getElementById('workList');
+  const content = document.getElementById('content');
+  document.getElementById('mainTitle').textContent = L('builder');
+  document.getElementById('tabs').innerHTML = '';
+  el.innerHTML = '';
+
+  const backends = ['claude','codex','gemini','aider','opencode','copilot','amazon-q','goose','kiro','grok','shell'];
+  const templates = [
+    { id: 'plan', role: 'planner-agent', prompt: 'Break down this into implementation steps' },
+    { id: 'code', role: 'worker-agent', prompt: 'Implement according to the plan' },
+    { id: 'test', role: 'tester-agent', prompt: 'Write and run tests' },
+    { id: 'review', role: 'reviewer-agent', prompt: 'Review code changes for quality and security' },
+    { id: 'deploy', role: 'deploy-agent', prompt: 'Deploy the changes' },
+    { id: 'custom', role: 'worker-agent', prompt: '' },
+  ];
+
+  let stages = [];
+  let selectedIdx = -1;
+
+  function render() {
+    let html = '<div style="margin-bottom:12px"><label style="font-size:0.8rem;color:var(--muted)">Pipeline name:</label> <input id="pipe-name" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;width:200px;font-size:0.8rem" value="my-pipeline"></div>';
+    html += '<div class="builder-palette">';
+    for (const t of templates) {
+      html += '<div class="builder-palette-item" onclick="addStage(\\'' + t.id + '\\',\\'' + t.role + '\\',\\'' + t.prompt.replace(/'/g,'') + '\\')">' + t.id + '</div>';
+    }
+    html += '</div>';
+    html += '<div class="builder-canvas" id="builder-canvas">';
+    if (stages.length === 0) {
+      html += '<span style="color:var(--muted);font-size:0.8rem">Click stages above to add them here</span>';
+    } else {
+      for (let i = 0; i < stages.length; i++) {
+        const s = stages[i];
+        const sel = i === selectedIdx ? ' selected' : '';
+        html += '<div class="builder-stage' + sel + '" onclick="selectStage(' + i + ')"><div class="stage-name">' + s.id + '</div><div class="stage-backend">' + (s.backend || 'auto') + '</div><button class="stage-remove" onclick="event.stopPropagation();removeStage(' + i + ')">×</button></div>';
+        if (i < stages.length - 1) html += '<span class="builder-arrow">→</span>';
+      }
+    }
+    html += '</div>';
+    if (selectedIdx >= 0 && stages[selectedIdx]) {
+      const s = stages[selectedIdx];
+      html += '<div class="builder-config">';
+      html += '<label>Stage ID</label><input value="' + esc(s.id) + '" onchange="updateStage(\\'id\\',this.value)">';
+      html += '<label>Role</label><input value="' + esc(s.role) + '" onchange="updateStage(\\'role\\',this.value)">';
+      html += '<label>Backend</label><select onchange="updateStage(\\'backend\\',this.value)"><option value="">auto</option>' + backends.map(b => '<option value="' + b + '"' + (s.backend === b ? ' selected' : '') + '>' + b + '</option>').join('') + '</select>';
+      html += '<label>Prompt</label><textarea onchange="updateStage(\\'prompt\\',this.value)">' + esc(s.prompt || '') + '</textarea>';
+      html += '<label>Validation command (optional)</label><input value="' + esc(s.validation || '') + '" onchange="updateStage(\\'validation\\',this.value)" placeholder="e.g. bun run test">';
+      html += '<label><input type="checkbox" ' + (s.gate ? 'checked' : '') + ' onchange="updateStage(\\'gate\\',this.checked ? \\'approve_\\' + stages[' + selectedIdx + '].id : \\'\\')"> Require approval gate</label>';
+      html += '</div>';
+    }
+    html += '<div class="builder-actions"><button class="btn-primary" onclick="savePipeline()">Save Pipeline</button><button class="btn-secondary" onclick="stages=[];selectedIdx=-1;render()">Clear</button></div>';
+    content.innerHTML = html;
+  }
+
+  window.addStage = function(id, role, prompt) {
+    stages.push({ id: id + (stages.filter(s=>s.id.startsWith(id)).length || ''), role, prompt, backend: '', validation: '', gate: '', skip_on_fail: false });
+    selectedIdx = stages.length - 1;
+    render();
+  };
+  window.removeStage = function(i) { stages.splice(i, 1); if (selectedIdx >= stages.length) selectedIdx = stages.length - 1; render(); };
+  window.selectStage = function(i) { selectedIdx = i; render(); };
+  window.updateStage = function(key, val) { if (selectedIdx >= 0) { stages[selectedIdx][key] = val; render(); } };
+  window.savePipeline = async function() {
+    const name = document.getElementById('pipe-name').value.trim() || 'my-pipeline';
+    const pipeline = { name, description: 'Created from dashboard builder', stages: stages.map(s => { const o = { id: s.id, role: s.role, skip_on_fail: false }; if (s.backend) o.backend = s.backend; if (s.prompt) o.prompt = s.prompt; if (s.validation) o.validation = s.validation; if (s.gate) o.gate = s.gate; return o; }) };
+    await fetch(API + '/api/pipeline/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name, pipeline }) });
+    alert('Pipeline "' + name + '" saved!');
+  };
+
+  render();
+}
+
 async function loadEnvironment() {
   const env = await fetch(API + '/api/environment').then(r => r.json());
   const el = document.getElementById('workList');
