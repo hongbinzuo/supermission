@@ -1637,6 +1637,19 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     });
 
   program
+    .command("update")
+    .description("Update supermission to the latest version")
+    .option("--check", "Only check for updates, don't install")
+    .action(async (options: { check?: boolean }) => {
+      const { checkForUpdates, performUpdate } = await import("./updater.js");
+      if (options.check) {
+        await checkForUpdates(false);
+      } else {
+        await performUpdate();
+      }
+    });
+
+  program
     .command("serve")
     .description("Start local web dashboard")
     .option("--port <port>", "Server port", "4000")
@@ -1654,6 +1667,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   // Default: if no command given, auto-init if needed then start dashboard
   if (argv.length === 0) {
     const store = storeFrom(program);
+
+    // Background update check (non-blocking)
+    import("./updater.js").then(m => m.checkForUpdates(true)).catch(() => {});
 
     // Auto-init if no runners.yaml exists
     const { readFile: readFs } = await import("node:fs/promises");
