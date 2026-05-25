@@ -229,7 +229,7 @@ export class WorkStore {
     const workId = input.id ? sanitizeId(input.id) : String(await this.nextWorkNumber());
     const paths = this.paths(workId);
 
-    if (await exists(paths.root)) {
+    if (await exists(paths.work)) {
       throw new Error(`work already exists: ${workId}`);
     }
 
