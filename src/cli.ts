@@ -905,6 +905,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--scope-allow <pattern>", "Allowed scope pattern", collect, [])
     .option("--scope-deny <pattern>", "Denied scope pattern", collect, [])
     .option("--validation <command>", "Validation command", collect, [])
+    .option("--assign <identity>", "Assign task to a team member or agent")
     .action(async (workId: string, options: TaskAddOptions) => {
       const mutationMode = parseMutationMode(options.mutationMode);
       const created = await storeFrom(program).addTask(workId, {
@@ -916,6 +917,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         scopeAllow: options.scopeAllow,
         scopeDeny: options.scopeDeny,
         validation: options.validation,
+        assignee: options.assign,
       });
       console.log(`${created.id} ${created.status} ${created.mutation_mode} - ${created.title}`);
     });
@@ -1710,6 +1712,7 @@ type TaskAddOptions = {
   scopeAllow: string[];
   scopeDeny: string[];
   validation: string[];
+  assign?: string;
 };
 
 type TaskSetStatusOptions = {

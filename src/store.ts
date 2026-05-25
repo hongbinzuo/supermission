@@ -108,6 +108,7 @@ export type AddTaskInput = {
   scopeAllow: string[];
   scopeDeny: string[];
   validation: string[];
+  assignee?: string;
 };
 
 export type WorkSummary = {
@@ -492,6 +493,7 @@ export class WorkStore {
       title: input.title,
       status: input.dependsOn.length > 0 ? "pending" : "ready",
       actor_role: input.actorRole,
+      assignee: input.assignee,
       depends_on: input.dependsOn,
       scope: {
         allow: input.scopeAllow,
