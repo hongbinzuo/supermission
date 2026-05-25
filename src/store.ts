@@ -12,7 +12,6 @@ import {
   type RunnerConfig,
   type RunnerExecution,
 } from "./runner.js";
-import { slugify } from "./slug.js";
 import { utcNow } from "./time.js";
 import {
   type ChangeProposal,
@@ -214,10 +213,19 @@ export class WorkStore {
     }
   }
 
+  async nextWorkNumber(): Promise<number> {
+    const ids = await this.listWorkIds();
+    let max = 0;
+    for (const id of ids) {
+      const num = Number.parseInt(id, 10);
+      if (Number.isFinite(num) && num > max) max = num;
+    }
+    return max + 1;
+  }
+
   async createWork(input: CreateWorkInput): Promise<string> {
     const now = utcNow();
-    const stamp = now.replace(/[-:TZ]/g, "").slice(0, 14);
-    const workId = input.id ? sanitizeId(input.id) : `${stamp}-${slugify(input.goal)}`;
+    const workId = input.id ? sanitizeId(input.id) : String(await this.nextWorkNumber());
     const paths = this.paths(workId);
 
     if (await exists(paths.root)) {

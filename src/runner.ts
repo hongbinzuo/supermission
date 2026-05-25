@@ -124,6 +124,8 @@ export type RunnerOptions = {
   tools?: string[];
   timeoutMs?: number;
   retry?: RunnerRetryOptions;
+  stream?: boolean;
+  interactive?: boolean;
 };
 
 export type RunnerRetryOptions = {
@@ -683,6 +685,35 @@ async function executeClaudeRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
+
+  // Interactive mode: launch claude without --print, let user interact
+  if (options.interactive) {
+    const args = ["--no-session-persistence"];
+    if (options.model) args.push("--model", options.model);
+    if (options.tools && options.tools.length > 0) {
+      args.push("--allowed-tools", options.tools.join(" "));
+    }
+    args.push("-p", prompt);
+
+    const startedAt = isoNow();
+    const started = performance.now();
+    const result = await spawnCaptured("claude", args, context.repo, false, undefined, {
+      interactive: true,
+    });
+    return {
+      backend: "claude",
+      command: formatCommandLine("claude", args, prompt),
+      prompt,
+      response: "(interactive session)",
+      started_at: startedAt,
+      finished_at: isoNow(),
+      exitCode: result.exitCode,
+      durationMs: Math.round(performance.now() - started),
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  }
+
   const args = [
     "--print",
     "--no-session-persistence",
@@ -702,6 +733,7 @@ async function executeClaudeRunner(
   const started = performance.now();
   const result = await spawnCaptured("claude", args, context.repo, false, undefined, {
     timeoutMs: options.timeoutMs,
+    stream: options.stream,
   });
   return {
     backend: "claude",
@@ -988,8 +1020,26 @@ async function spawnCaptured(
   cwd: string,
   shell = false,
   env?: Record<string, string>,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; stream?: boolean; interactive?: boolean } = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  // Interactive mode: inherit stdio, let user interact directly
+  if (options.interactive) {
+    return new Promise((resolve) => {
+      const child = spawn(command, args, {
+        cwd,
+        env: env ? { ...process.env, ...env } : process.env,
+        shell,
+        stdio: "inherit",
+      });
+      child.on("error", (error: Error) => {
+        resolve({ exitCode: 127, stdout: "", stderr: error.message });
+      });
+      child.on("close", (code) => {
+        resolve({ exitCode: code ?? 1, stdout: "(interactive session)", stderr: "" });
+      });
+    });
+  }
+
   return new Promise((resolve) => {
     let settled = false;
     const child = spawn(command, args, {
@@ -1029,9 +1079,11 @@ async function spawnCaptured(
     });
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
+      if (options.stream) process.stdout.write(chunk);
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
+      if (options.stream) process.stderr.write(chunk);
     });
     child.on("close", (code) => {
       if (settled) return;
