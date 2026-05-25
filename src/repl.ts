@@ -100,9 +100,10 @@ async function handleSlashCommand(
   const arg = parts[1];
 
   switch (cmd) {
+    case "":
     case "help":
       console.log(`
-  Slash commands:
+  Available commands (Tab to autocomplete):
     /board              Show kanban board
     /list               List all works
     /use <id>           Switch to work #id (continue working on it)
