@@ -24,6 +24,14 @@ export async function startRepl(repo: string): Promise<void> {
     input: process.stdin,
     output: process.stdout,
     prompt: `superm> `,
+    completer: (line: string) => {
+      const slashCommands = ["/help", "/board", "/list", "/use ", "/close", "/new ", "/status ", "/cost ", "/info", "/pipeline", "/clear", "/quit"];
+      if (line.startsWith("/")) {
+        const hits = slashCommands.filter((c) => c.startsWith(line));
+        return [hits.length ? hits : slashCommands, line];
+      }
+      return [[], line];
+    },
   });
 
   let currentWorkId: string | null = null;
