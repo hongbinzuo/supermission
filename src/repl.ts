@@ -17,30 +17,27 @@ export async function startRepl(repo: string): Promise<void> {
   console.log(`  ⚡ Supermission — ${projectName}`);
   console.log(`  Agent: ${backend}`);
   console.log(`  Dashboard: http://localhost:4000`);
-  console.log(`  Talk to the agent directly. Use /commands for superm features.`);
-  console.log(`  /help for commands, /quit to exit.\n`);
+  console.log(`  Type a task to start an agent session. /commands for superm.`);
+  console.log(`  /help for commands, exit to quit.\n`);
+
+  let currentWorkId: string | null = null;
+
+  const prompt = () => currentWorkId ? `superm #${currentWorkId}> ` : `superm> `;
 
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `superm> `,
+    prompt: prompt(),
     completer: (line: string) => {
-      const slashCommands = ["/help", "/board", "/list", "/use ", "/close", "/new ", "/status ", "/cost ", "/info", "/pipeline", "/clear", "/quit"];
+      const cmds = ["/help", "/board", "/list", "/use ", "/close ", "/new ", "/status ", "/cost ", "/info", "/pipeline", "/clear", "/quit"];
       if (line.startsWith("/")) {
-        const hits = slashCommands.filter((c) => c.startsWith(line));
-        return [hits.length ? hits : slashCommands, line];
+        const hits = cmds.filter((c) => c.startsWith(line));
+        return [hits.length ? hits : cmds, line];
       }
       return [[], line];
     },
   });
 
-  let currentWorkId: string | null = null;
-
-  function updatePrompt(): void {
-    rl.setPrompt(currentWorkId ? `superm #${currentWorkId}> ` : `superm> `);
-  }
-
-  updatePrompt();
   rl.prompt();
 
   rl.on("line", async (line) => {
@@ -51,26 +48,25 @@ export async function startRepl(repo: string): Promise<void> {
       return;
     }
 
-    // Handle exit/quit without slash
+    // Exit without slash
     if (input === "exit" || input === "quit" || input === "q") {
       console.log("Bye!");
-      rl.close();
       process.exit(0);
     }
 
-    // Slash commands — superm features
+    // Slash commands
     if (input.startsWith("/")) {
-      const result = await handleSlashCommand(input, store, repo, currentWorkId, rl);
-      if (result.workId !== undefined) {
-        currentWorkId = result.workId;
-        updatePrompt();
+      const result = await handleSlash(input, store, repo, currentWorkId);
+      if (result.newWorkId !== undefined) {
+        currentWorkId = result.newWorkId;
+        rl.setPrompt(prompt());
       }
+      rl.prompt();
       return;
     }
 
-    // Everything else goes to the agent as a conversation
-
-    // Create a work record if no active work
+    // --- Agent session ---
+    // Create work record if needed
     if (!currentWorkId) {
       const goal = input.length > 60 ? input.slice(0, 57) + "..." : input;
       currentWorkId = await store.createWork({
@@ -79,12 +75,28 @@ export async function startRepl(repo: string): Promise<void> {
         acceptance: [],
         validationCommands: [],
       });
-      updatePrompt();
-      console.log(`  [work #${currentWorkId} created]\n`);
+      rl.setPrompt(prompt());
+      console.log(`  [work #${currentWorkId} created]`);
     }
 
-    // Send to agent interactively
-    await runAgent(backend, input, repo, rl);
+    // Launch agent in full interactive mode (Option A)
+    console.log(`  [entering ${backend} session — Ctrl+D or /exit to return]\n`);
+    rl.pause();
+
+    const exitCode = await launchAgentSession(backend, input, repo);
+
+    console.log(`\n  [${backend} session ended (exit ${exitCode})]`);
+
+    // Record evidence
+    await store.appendEvent(currentWorkId, "agent.session", "local-user", {
+      backend,
+      exit_code: exitCode,
+      initial_prompt: input,
+    });
+
+    rl.resume();
+    rl.setPrompt(prompt());
+    rl.prompt();
   });
 
   rl.on("close", () => {
@@ -93,174 +105,133 @@ export async function startRepl(repo: string): Promise<void> {
   });
 }
 
-type SlashResult = { workId?: string | null };
+// --- Slash command handler ---
 
-async function handleSlashCommand(
+type SlashResult = { newWorkId?: string | null };
+
+async function handleSlash(
   input: string,
   store: WorkStore,
   repo: string,
   currentWorkId: string | null,
-  rl: ReturnType<typeof createInterface>,
 ): Promise<SlashResult> {
   const parts = input.slice(1).split(" ");
   const cmd = parts[0];
-  const arg = parts[1];
+  const arg = parts.slice(1).join(" ").trim();
 
   switch (cmd) {
     case "":
     case "help":
       console.log(`
-  Available commands (Tab to autocomplete):
-    /board              Show kanban board
-    /list               List all works
-    /use <id>           Switch to work #id (continue working on it)
-    /close [id]         Close current or specified work
-    /new "goal"         Create a new work record
-    /status [id]        Show work status
-    /cost [id]          Show token cost
-    /info               Show environment
-    /pipeline           List pipelines
-    /clear              Start new conversation (detach from current work)
-    /quit               Exit superm
+  /board              看板视图
+  /list               列出所有任务
+  /use <id>           切换到任务 #id
+  /close [id]         关闭当前或指定任务
+  /new "goal"         创建新任务
+  /status [id]        查看任务状态
+  /cost [id]          查看 Token 成本
+  /info               查看环境信息
+  /pipeline           查看流水线
+  /clear              脱离当前任务
+  /quit               退出 superm
 
-  Everything else is sent directly to the agent.
+  直接输入文字 → 进入 Agent 交互会话
 `);
-      break;
+      return {};
+
     case "quit":
     case "exit":
-    case "q":
       console.log("Bye!");
-      rl.close();
       process.exit(0);
-      break;
-    case "use": {
-      if (!arg) {
-        console.log("  Usage: /use <id>");
-        break;
-      }
+      break; // eslint: no-fallthrough
+
+    case "use":
+      if (!arg) { console.log("  用法: /use <id>"); return {}; }
       try {
         const spec = await store.readWork(arg);
-        console.log(`  [switched to #${spec.id}: ${spec.goal}]\n`);
-        rl.prompt();
-        return { workId: arg };
-      } catch {
-        console.log(`  [work #${arg} not found]`);
-      }
-      break;
-    }
+        console.log(`  [切换到 #${spec.id}: ${spec.goal}]`);
+        return { newWorkId: arg };
+      } catch { console.log(`  [任务 #${arg} 不存在]`); }
+      return {};
+
     case "close": {
-      const id = arg ?? currentWorkId;
-      if (!id) {
-        console.log("  No active work. Usage: /close <id>");
-        break;
-      }
+      const id = arg || currentWorkId;
+      if (!id) { console.log("  用法: /close <id>"); return {}; }
       try {
         await store.updateStatus(id, "completed", "local-user", "Closed from REPL");
-        console.log(`  [#${id} closed]`);
-        if (id === currentWorkId) {
-          rl.prompt();
-          return { workId: null };
-        }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.log(`  [error: ${msg}]`);
-      }
-      break;
+        console.log(`  [#${id} 已关闭]`);
+        if (id === currentWorkId) return { newWorkId: null };
+      } catch (e) { console.log(`  [错误: ${e instanceof Error ? e.message : e}]`); }
+      return {};
     }
-    case "clear":
-      console.log("  [Detached from current work. Start a new conversation.]\n");
-      rl.prompt();
-      return { workId: null };
+
     case "new": {
-      const goal = parts.slice(1).join(" ").replace(/^["']|["']$/g, "");
-      if (!goal) {
-        console.log('  Usage: /new "goal description"');
-        break;
-      }
-      const newId = await store.createWork({
-        goal,
-        actor: "local-user",
-        acceptance: [],
-        validationCommands: [],
-      });
-      console.log(`  [work #${newId} created: ${goal}]\n`);
-      rl.prompt();
-      return { workId: newId };
+      const goal = arg.replace(/^["']|["']$/g, "");
+      if (!goal) { console.log('  用法: /new "目标描述"'); return {}; }
+      const id = await store.createWork({ goal, actor: "local-user", acceptance: [], validationCommands: [] });
+      console.log(`  [任务 #${id} 已创建: ${goal}]`);
+      return { newWorkId: id };
     }
+
+    case "clear":
+      console.log("  [已脱离当前任务]");
+      return { newWorkId: null };
+
     default: {
-      // Check if it's a known superm command (board, list, status, cost, info, pipeline)
-      const knownCommands = ["board", "list", "status", "cost", "info", "pipeline", "tasks", "trace", "summary", "doctor"];
-      if (knownCommands.includes(cmd)) {
-        try {
-          await runCli([...parts, "--repo", repo]);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          console.error(`  error: ${msg}`);
-        }
+      const known = ["board", "list", "status", "cost", "info", "pipeline", "tasks", "trace", "summary"];
+      if (known.includes(cmd)) {
+        try { await runCli([...parts, "--repo", repo]); }
+        catch (e) { console.error(`  错误: ${e instanceof Error ? e.message : e}`); }
       } else {
-        console.log(`  Unknown command: /${cmd}. Type / to see available commands.`);
+        console.log(`  未知命令: /${cmd}。输入 / 查看可用命令。`);
       }
-      console.log("");
-      break;
+      return {};
     }
   }
-  rl.prompt();
-  return {};
 }
 
-async function runAgent(
-  backend: string,
-  prompt: string,
-  cwd: string,
-  rl: ReturnType<typeof createInterface>,
-): Promise<void> {
-  let cmd: string;
-  let args: string[];
+// --- Launch agent in full interactive mode ---
 
-  switch (backend) {
-    case "claude":
-      cmd = "claude";
-      args = ["--print", "--no-session-persistence", "--dangerously-skip-permissions", prompt];
-      break;
-    case "codex":
-      cmd = "codex";
-      args = ["exec", "-C", cwd, "--ephemeral", "--dangerously-bypass-approvals-and-sandbox", prompt];
-      break;
-    case "gemini":
-      cmd = "gemini";
-      args = ["--prompt", prompt, "--sandbox", "false", "--yes"];
-      break;
-    default:
-      cmd = backend;
-      args = [prompt];
-  }
-
+function launchAgentSession(backend: string, initialPrompt: string, cwd: string): Promise<number> {
   return new Promise((resolve) => {
+    let cmd: string;
+    let args: string[];
+
+    switch (backend) {
+      case "claude":
+        // Launch claude interactively with initial prompt, session persists
+        cmd = "claude";
+        args = ["-p", initialPrompt];
+        break;
+      case "codex":
+        cmd = "codex";
+        args = ["-C", cwd, initialPrompt];
+        break;
+      case "gemini":
+        cmd = "gemini";
+        args = [initialPrompt];
+        break;
+      case "aider":
+        cmd = "aider";
+        args = ["--message", initialPrompt];
+        break;
+      default:
+        cmd = backend;
+        args = [initialPrompt];
+    }
+
     const child = spawn(cmd, args, {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-
-    child.stdout.on("data", (chunk: string) => {
-      process.stdout.write(chunk);
-    });
-    child.stderr.on("data", (chunk: string) => {
-      process.stderr.write(chunk);
+      stdio: "inherit", // Full interactive — agent owns the terminal
     });
 
     child.on("error", (err) => {
-      console.error(`  [agent error: ${err.message}]`);
-      resolve();
-      rl.prompt();
+      console.error(`  [无法启动 ${backend}: ${err.message}]`);
+      resolve(127);
     });
 
-    child.on("close", () => {
-      console.log("");
-      resolve();
-      rl.prompt();
+    child.on("close", (code) => {
+      resolve(code ?? 0);
     });
   });
 }
