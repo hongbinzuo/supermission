@@ -33,6 +33,105 @@ Bun-first TypeScript、本地优先、Git-backed `.supermission/` 记录、线�
 
 核心 engine 保持 runner-neutral。模型运行时放在 runner/adapter 层，按 work 可选启用。
 
+## 多 Agent 流水线系统
+
+Supermission 支持 YAML 定义的多 Agent 流水线，每个阶段可以使用不同的 AI Agent CLI。
+内置模板：
+
+- `feature` — 规划 → 编码 → 测试 → 评审
+- `bugfix` — 复现 → 修复 → 验证
+- `deploy` — 规划 → 编码 → 测试 → 评审 → 部署
+
+```bash
+supermission pipeline init                              # 创建模板
+supermission pipeline run feature "添加 OAuth2 登录"     # 端到端执行
+supermission pipeline run bugfix "修复空指针异常"        # 快速修复
+supermission pipeline batch feature "功能A" "功能B"      # 批量执行
+```
+
+自定义流水线只需在 `.supermission/pipelines/` 中创建 YAML 文件：
+
+```yaml
+name: my-pipeline
+stages:
+  - id: plan
+    role: planner-agent
+    backend: gemini
+    prompt: "分解这个功能"
+    gate: approve_plan
+  - id: code
+    role: worker-agent
+    backend: claude
+    prompt: "实现这个功能"
+  - id: test
+    role: tester-agent
+    backend: codex
+    validation: "bun run test"
+```
+
+## 支持的 Agent 后端
+
+Supermission 支持 12 种 runner 后端，具备智能选择和自动降级：
+
+| 后端 | CLI 命令 | 说明 |
+|------|----------|------|
+| `shell` | 任意 | 执行本地 shell 命令 |
+| `claude` | `claude` | Anthropic Claude Code |
+| `codex` | `codex` | OpenAI Codex |
+| `gemini` | `gemini` | Google Gemini CLI |
+| `aider` | `aider` | Aider AI 结对编程 |
+| `opencode` | `opencode` | OpenCode 终端 Agent |
+| `copilot` | `gh` | GitHub Copilot CLI |
+| `amazon-q` | `q` | Amazon Q Developer |
+| `goose` | `goose` | Block Goose Agent |
+| `kiro` | `kiro` | AWS Kiro CLI |
+| `grok` | `grok` | xAI Grok CLI |
+| `record` | — | 记录外部/手动执行 |
+
+智能选择自动检测已安装的 CLI 并按角色路由：
+
+```yaml
+# .supermission/runners.yaml
+default_backend: auto
+fallback_order: [claude, codex, gemini]
+routing:
+  planner-agent: gemini      # 规划用便宜的
+  worker-agent: claude       # 编码用最强的
+  tester-agent: codex        # 测试用 Codex
+  reviewer-agent: gemini     # 评审用便宜的
+```
+
+## 团队协作
+
+基于 Git 的原生协作，无需服务器：
+
+```bash
+supermission team init
+supermission team add --name "Alice" --role lead
+supermission team add --name "Bob" --role developer
+supermission team add --name "Codex Worker" --kind agent --role agent --backend codex
+
+supermission new "修复登录 Bug" --assign bob
+supermission board                    # 看板视图，显示负责人
+supermission board --mine             # 只看我的任务
+supermission assign work-001 --to alice
+```
+
+团队状态通过 git push/pull 同步。小团队无需服务器。
+
+## 成本追踪
+
+```bash
+supermission cost work-001            # 每个后端的 token 用量、运行时间、成本估算
+```
+
+## Web 仪表盘
+
+```bash
+supermission serve                    # 启动本地仪表盘 http://localhost:4000
+supermission serve --port 8080 --open # 自定义端口，自动打开浏览器
+```
+
 ## 产品形态
 
 Supermission 不应该替代 Codex、Claude Code 或 IDE coding agent。目标形态是：
@@ -48,16 +147,19 @@ UX 和响应速度不是后期美化，而是产品要求。长时间 runner 任
 
 ## 安装与发布状态
 
-当前还没有正式安装包或发布渠道。
+快速安装（macOS/Linux）：
 
-- `package.json` 目前是 `"private": true`。
-- 目标 npm 包名是 `@hongbinzuo/supermission`。未加 scope 的 `supermission` 已经被占用。
-- 还没有公开 npm、Homebrew、Docker 或二进制发布。
-- 当前使用方式是从仓库本地开发运行。
-- 推荐的第一条公开发布路径是 npm package，然后 GitHub Releases。Homebrew 和 Docker
-  等 CLI 合约、文件布局和 runner 配置稳定后再做。
-- 发布和数据决策见
-  [`docs/architecture/release-and-data-decisions.md`](./docs/architecture/release-and-data-decisions.md)。
+```bash
+curl -fsSL https://raw.githubusercontent.com/hongbinzuo/supermission/main/scripts/install.sh | bash
+```
+
+Windows (PowerShell)：
+
+```powershell
+irm https://raw.githubusercontent.com/hongbinzuo/supermission/main/scripts/install.ps1 | iex
+```
+
+安装脚本会自动检测系统环境，按需安装 Bun，克隆仓库并构建，同时检测你已安装的 Agent CLI。
 
 本地开发：
 
@@ -67,11 +169,13 @@ bun run build
 bin/supermission --help
 ```
 
-发布打包 dry run：
+首次项目设置：
 
 ```bash
-bun run build
-npm pack --dry-run
+cd your-project
+supermission init                    # 自动检测 Agent CLI，设置默认值
+supermission pipeline init           # 创建流水线模板
+supermission quick "你的第一个任务"    # 端到端执行
 ```
 
 发布后的预期 npm 安装方式：
@@ -232,13 +336,14 @@ Git 证据和隔离：
 
 | 里程碑 | 重点                                                                                                  | 当前状态 |
 | ------ | ----------------------------------------------------------------------------------------------------- | -------- |
-| V0     | 本地 work records、CLI 状态机、artifacts、验证、评审、交接、回退计划                                  | 进行中   |
-| V0.5   | 统一 runner 层，接入 record、shell、Codex、Claude Code；补真实集成 smoke tests                        | 进行中   |
-| V0.6   | 需求分析、本地能力测评、runner、validator、artifact writer、policy、workflow template 的插件/组件边界 | 进行中   |
-| V0.7   | Agent 足迹图、结果测评记录、可复用 eval set、Git/worktree 隔离、任务队列                              | 计划中   |
-| V1     | Terminal TUI 复用同一个 engine，不复制 work logic                                                     | 计划中   |
-| V1.5   | CLI/TUI 合约稳定后做 editor adapters                                                                  | 计划中   |
-| V2     | 开源扩展点、安装发布流水线、兼容性目标文档                                                            | 计划中   |
+| V0     | 本地 work records、CLI 状态机、artifacts、验证、评审、交接、回退计划                                  | 完成     |
+| V0.5   | 统一 runner 层：12 种后端（shell、codex、claude、gemini、aider、opencode、copilot、amazon-q、goose、kiro、grok）；智能选择和降级 | 完成     |
+| V0.6   | 多 Agent 流水线、团队协作、任务分配、看板视图、成本追踪、Web 仪表盘、安装脚本                         | 完成     |
+| V0.7   | 项目管理（里程碑、周期、优先级）、Linear/Jira/GitHub 集成、导入/导出                                  | 进行中   |
+| V0.8   | 通知系统（收件箱、Webhook）、锁管理器、冲突检测、协调索引服务                                         | 计划中   |
+| V1     | Terminal TUI（React Ink）、完善 Web 仪表盘、Runner 流式进度                                           | 计划中   |
+| V1.5   | 编辑器适配器（VS Code、Kiro）、Agent 持久记忆                                                         | 计划中   |
+| V2     | 开源扩展点、npm 发布、Homebrew、兼容性目标文档                                                        | 计划中   |
 
 主要对标基线是 Factory Missions 的协作规划、按 milestone 执行和验证闭环。
 Supermission 的定位是这个方向的开源、本地优先版本，`.supermission/` 是 source of truth。
