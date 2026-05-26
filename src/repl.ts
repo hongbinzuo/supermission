@@ -126,6 +126,27 @@ export async function startRepl(repo: string): Promise<void> {
     },
   });
 
+  // Show inline hint as user types slash commands
+  if (process.stdin.isTTY) {
+    const emitKeypressEvents = await import("node:readline").then(m => m.emitKeypressEvents);
+    emitKeypressEvents(process.stdin);
+    process.stdin.on("keypress", () => {
+      const line = (rl as unknown as { line: string }).line;
+      if (line && line.startsWith("/") && line.length > 1) {
+        const suggestions = suggestSlashCommands(line);
+        if (suggestions.length > 0 && suggestions[0] !== line.trimEnd()) {
+          // Show ghost text (dimmed) after cursor
+          const ghost = suggestions[0].slice(line.length);
+          if (ghost) {
+            process.stdout.write(`\x1b[2m${ghost}\x1b[0m`);
+            // Move cursor back
+            process.stdout.write(`\x1b[${ghost.length}D`);
+          }
+        }
+      }
+    });
+  }
+
   rl.prompt();
 
   rl.on("line", async (line) => {
