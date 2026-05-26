@@ -545,6 +545,23 @@ export class WorkStore {
     return updated;
   }
 
+  async renameTask(
+    workId: string,
+    taskId: string,
+    title: string,
+    actor: string,
+  ): Promise<WorkTask> {
+    const task = await this.readTask(workId, taskId);
+    const updated: WorkTask = { ...task, title, updated_at: utcNow() };
+    await this.writeTask(workId, updated);
+    await this.appendEvent(workId, "task.renamed", actor, {
+      task: taskId,
+      from: task.title,
+      to: title,
+    });
+    return updated;
+  }
+
   async ensureTaskCanRun(workId: string, task: WorkTask): Promise<void> {
     if (task.mutation_mode !== "linear_write") return;
     const tasks = await this.listTasks(workId);

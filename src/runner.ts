@@ -10,13 +10,14 @@ export type RunnerBackend =
   | "shell"
   | "codex"
   | "claude"
+  | "kiro"
+  | "kimi"
   | "gemini"
   | "aider"
   | "opencode"
   | "copilot"
   | "amazon-q"
   | "goose"
-  | "kiro"
   | "grok";
 
 export const RunnerBackendSchema = z.enum([
@@ -24,13 +25,14 @@ export const RunnerBackendSchema = z.enum([
   "shell",
   "codex",
   "claude",
+  "kiro",
+  "kimi",
   "gemini",
   "aider",
   "opencode",
   "copilot",
   "amazon-q",
   "goose",
-  "kiro",
   "grok",
 ]);
 
@@ -65,6 +67,16 @@ export const RUNNER_REGISTRY: RunnerDescriptor[] = [
     profileSource: "native",
   },
   {
+    backend: "kiro",
+    label: "AWS Kiro CLI agent",
+    kind: "external",
+  },
+  {
+    backend: "kimi",
+    label: "Moonshot Kimi CLI agent",
+    kind: "external",
+  },
+  {
     backend: "gemini",
     label: "Google Gemini CLI agent",
     kind: "external",
@@ -92,11 +104,6 @@ export const RUNNER_REGISTRY: RunnerDescriptor[] = [
   {
     backend: "goose",
     label: "Block Goose autonomous coding agent",
-    kind: "external",
-  },
-  {
-    backend: "kiro",
-    label: "AWS Kiro CLI agent",
     kind: "external",
   },
   {
@@ -172,13 +179,14 @@ export const RunnerConfigSchema = z.object({
       shell: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       codex: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       claude: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      kiro: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
+      kimi: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       gemini: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       aider: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       opencode: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       copilot: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       "amazon-q": RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       goose: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
-      kiro: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
       grok: RunnerBackendConfigSchema.default(DEFAULT_BACKEND_CONFIG),
     })
     .default({
@@ -186,13 +194,14 @@ export const RunnerConfigSchema = z.object({
       shell: DEFAULT_BACKEND_CONFIG,
       codex: DEFAULT_BACKEND_CONFIG,
       claude: DEFAULT_BACKEND_CONFIG,
+      kiro: DEFAULT_BACKEND_CONFIG,
+      kimi: DEFAULT_BACKEND_CONFIG,
       gemini: DEFAULT_BACKEND_CONFIG,
       aider: DEFAULT_BACKEND_CONFIG,
       opencode: DEFAULT_BACKEND_CONFIG,
       copilot: DEFAULT_BACKEND_CONFIG,
       "amazon-q": DEFAULT_BACKEND_CONFIG,
       goose: DEFAULT_BACKEND_CONFIG,
-      kiro: DEFAULT_BACKEND_CONFIG,
       grok: DEFAULT_BACKEND_CONFIG,
     }),
 });
@@ -216,18 +225,39 @@ export type RunnerExecution = {
 
 // --- Smart Runner Selection ---
 
-const DETECTABLE_BACKENDS: Array<{ backend: RunnerBackend; binary: string }> = [
-  { backend: "claude", binary: "claude" },
-  { backend: "codex", binary: "codex" },
-  { backend: "gemini", binary: "gemini" },
-  { backend: "aider", binary: "aider" },
-  { backend: "opencode", binary: "opencode" },
-  { backend: "copilot", binary: "gh" },
-  { backend: "amazon-q", binary: "q" },
-  { backend: "goose", binary: "goose" },
-  { backend: "kiro", binary: "kiro" },
-  { backend: "grok", binary: "grok" },
+export const DEFAULT_RUNNER_PRIORITY: RunnerBackend[] = [
+  "codex",
+  "claude",
+  "kiro",
+  "kimi",
+  "gemini",
+  "aider",
+  "opencode",
+  "copilot",
+  "amazon-q",
+  "goose",
+  "grok",
 ];
+
+const DETECTABLE_BACKEND_BINARIES: Partial<Record<RunnerBackend, string>> = {
+  codex: "codex",
+  claude: "claude",
+  kiro: "kiro",
+  kimi: "kimi",
+  gemini: "gemini",
+  aider: "aider",
+  opencode: "opencode",
+  copilot: "gh",
+  "amazon-q": "q",
+  goose: "goose",
+  grok: "grok",
+};
+
+const DETECTABLE_BACKENDS: Array<{ backend: RunnerBackend; binary: string }> =
+  DEFAULT_RUNNER_PRIORITY.map((backend) => ({
+    backend,
+    binary: DETECTABLE_BACKEND_BINARIES[backend] ?? backend,
+  }));
 
 export async function detectAvailableBackends(): Promise<RunnerBackend[]> {
   const available: RunnerBackend[] = [];
@@ -461,6 +491,10 @@ async function executeRunnerOnce(
       return executeCodexRunner(context, options);
     case "claude":
       return executeClaudeRunner(context, options);
+    case "kiro":
+      return executeKiroRunner(context, options);
+    case "kimi":
+      return executeKimiRunner(context, options);
     case "gemini":
       return executeGeminiRunner(context, options);
     case "aider":
@@ -473,8 +507,6 @@ async function executeRunnerOnce(
       return executeAmazonQRunner(context, options);
     case "goose":
       return executeGooseRunner(context, options);
-    case "kiro":
-      return executeKiroRunner(context, options);
     case "grok":
       return executeGrokRunner(context, options);
   }
@@ -934,6 +966,34 @@ async function executeKiroRunner(
   return {
     backend: "kiro",
     command: formatCommandLine("kiro", args, prompt),
+    prompt,
+    response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
+    started_at: startedAt,
+    finished_at: isoNow(),
+    exitCode: result.exitCode,
+    durationMs: Math.round(performance.now() - started),
+    stdout: result.stdout,
+    stderr: result.stderr,
+    tokensUsed: extractTokensUsed(result.stdout, result.stderr),
+  };
+}
+
+async function executeKimiRunner(
+  context: RunnerContext,
+  options: RunnerOptions,
+): Promise<RunnerExecution> {
+  const prompt = options.prompt ?? buildWorkPrompt(context);
+  const args = ["run", "--prompt", prompt, "--non-interactive"];
+  if (options.model) args.push("--model", options.model);
+
+  const startedAt = isoNow();
+  const started = performance.now();
+  const result = await spawnCaptured("kimi", args, context.repo, false, undefined, {
+    timeoutMs: options.timeoutMs,
+  });
+  return {
+    backend: "kimi",
+    command: formatCommandLine("kimi", args, prompt),
     prompt,
     response: result.stdout.trim().length > 0 ? result.stdout.trim() : undefined,
     started_at: startedAt,

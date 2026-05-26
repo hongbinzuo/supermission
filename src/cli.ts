@@ -22,6 +22,8 @@ type GlobalOptions = {
   repo: string;
 };
 
+const TERMINAL_LIST_STATUSES = new Set(["completed", "failed", "cancelled", "canceled", "aborted"]);
+
 type RunnerCliOptions = {
   backend?: RunnerBackend;
   command?: string;
@@ -88,7 +90,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
       if (available.length === 0) {
         console.log("\nNo agent CLIs found on PATH.");
-        console.log("Install one of: claude, codex, gemini, aider, opencode, goose, grok");
+        console.log(
+          "Install one of: codex, claude, kiro, kimi, gemini, aider, opencode, goose, grok",
+        );
         console.log("\nUsing shell runner as default.");
         await store.writeRunnerConfig({
           ...existingConfig,
@@ -147,15 +151,16 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       // Detect and show agent CLI versions
       console.log(`\nAgent CLIs:`);
       const agents = [
-        { name: "claude", cmd: "claude", versionFlag: "--version" },
         { name: "codex", cmd: "codex", versionFlag: "--version" },
+        { name: "claude", cmd: "claude", versionFlag: "--version" },
+        { name: "kiro", cmd: "kiro", versionFlag: "--version" },
+        { name: "kimi", cmd: "kimi", versionFlag: "--version" },
         { name: "gemini", cmd: "gemini", versionFlag: "--version" },
         { name: "aider", cmd: "aider", versionFlag: "--version" },
         { name: "opencode", cmd: "opencode", versionFlag: "--version" },
         { name: "copilot (gh)", cmd: "gh", versionFlag: "--version" },
         { name: "amazon-q", cmd: "q", versionFlag: "--version" },
         { name: "goose", cmd: "goose", versionFlag: "--version" },
-        { name: "kiro", cmd: "kiro", versionFlag: "--version" },
         { name: "grok", cmd: "grok", versionFlag: "--version" },
       ];
 
@@ -354,7 +359,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   runnerCommand
     .command("smoke")
     .description("Run a backend smoke test without creating a work")
-    .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
+    .option(
+      "--backend <backend>",
+      "record | shell | codex | claude | kiro | kimi",
+      parseRunnerBackend,
+    )
     .option("--command <command>", "Shell command for shell runner")
     .option("--prompt <prompt>", "Smoke prompt", "Reply only with runner-smoke-ok.")
     .option("--model <model>", "Runner model override")
@@ -425,7 +434,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .argument("<work-id>")
     .option("--actor <actor>", "Actor id", "worker-agent")
     .option("--note <note>", "Run note")
-    .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
+    .option(
+      "--backend <backend>",
+      "record | shell | codex | claude | kiro | kimi",
+      parseRunnerBackend,
+    )
     .option("--command <command>", "Shell command for shell runner")
     .option("--prompt <prompt>", "Prompt for runner backends")
     .option("--model <model>", "Runner model override")
@@ -536,7 +549,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   program
     .command("list")
-    .description("List all work records with status")
+    .description("List active work records with status")
     .option("--status <status>", "Filter by status")
     .option("--json", "Print JSON")
     .action(async (options: { status?: string; json?: boolean }) => {
@@ -550,6 +563,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       for (const id of ids) {
         const spec = await store.readWork(id);
         if (options.status && spec.status !== options.status) continue;
+        if (!options.status && TERMINAL_LIST_STATUSES.has(spec.status)) continue;
         works.push(spec);
       }
       if (options.json) {
@@ -966,6 +980,23 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     });
 
   task
+    .command("rename")
+    .description("Rename a task")
+    .argument("<work-id>")
+    .argument("<task-id>")
+    .requiredOption("--title <title>", "New task title")
+    .option("--actor <actor>", "Actor id", "local-user")
+    .action(async (workId: string, taskId: string, options: TaskRenameOptions) => {
+      const updated = await storeFrom(program).renameTask(
+        workId,
+        taskId,
+        options.title,
+        options.actor,
+      );
+      console.log(`${updated.id} renamed - ${updated.title}`);
+    });
+
+  task
     .command("audit-scope")
     .description("Audit current git changes against one task scope")
     .argument("<work-id>")
@@ -1314,7 +1345,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .option("--actor <actor>", "Actor id", "local-user")
     .option("--acceptance <item>", "Acceptance criterion", collect, [])
     .option("--validation <command>", "Validation command", collect, [])
-    .option("--backend <backend>", "record | shell | codex | claude", parseRunnerBackend)
+    .option(
+      "--backend <backend>",
+      "record | shell | codex | claude | kiro | kimi",
+      parseRunnerBackend,
+    )
     .option("--command <command>", "Shell command for shell runner")
     .option("--prompt <prompt>", "Prompt for runner backends")
     .option("--model <model>", "Runner model override")
@@ -1636,6 +1671,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         "amazon-q": 0, // included in AWS
         goose: 5.0,
         kiro: 5.0,
+        kimi: 3.0,
         grok: 3.0,
         shell: 0,
         record: 0,
@@ -1877,6 +1913,11 @@ type TaskSetStatusOptions = {
   actor: string;
 };
 
+type TaskRenameOptions = {
+  title: string;
+  actor: string;
+};
+
 function parseMutationMode(
   value: string,
 ): "sidecar_readonly" | "sidecar_artifact" | "linear_write" {
@@ -1955,13 +1996,14 @@ function defaultRunnerConfig(defaultBackend: RunnerBackend): RunnerConfig {
       shell: defaultBackendConfig,
       codex: defaultBackendConfig,
       claude: defaultBackendConfig,
+      kiro: defaultBackendConfig,
+      kimi: defaultBackendConfig,
       gemini: defaultBackendConfig,
       aider: defaultBackendConfig,
       opencode: defaultBackendConfig,
       copilot: defaultBackendConfig,
       "amazon-q": defaultBackendConfig,
       goose: defaultBackendConfig,
-      kiro: defaultBackendConfig,
       grok: defaultBackendConfig,
     },
   };

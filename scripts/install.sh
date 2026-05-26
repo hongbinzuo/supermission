@@ -138,8 +138,8 @@ detect_agents() {
   echo ""
   info "Detecting agent CLIs on PATH..."
   local found=0
-  local agents=("claude" "codex" "gemini" "aider" "opencode" "gh" "q" "goose" "kiro" "grok")
-  local labels=("Claude Code" "OpenAI Codex" "Gemini CLI" "Aider" "OpenCode" "GitHub Copilot" "Amazon Q" "Goose" "Kiro" "Grok")
+  local agents=("codex" "claude" "kiro" "kimi" "gemini" "aider" "opencode" "gh" "q" "goose" "grok")
+  local labels=("OpenAI Codex" "Claude Code" "Kiro" "Kimi" "Gemini CLI" "Aider" "OpenCode" "GitHub Copilot" "Amazon Q" "Goose" "Grok")
 
   for i in "${!agents[@]}"; do
     if command -v "${agents[$i]}" &>/dev/null; then
@@ -150,7 +150,7 @@ detect_agents() {
 
   if [ "$found" -eq 0 ]; then
     warn "No agent CLIs found. You can still use --backend shell."
-    warn "Install one: claude, codex, gemini, aider, opencode, goose"
+    warn "Install one: codex, claude, kiro, kimi, gemini, aider, opencode, goose"
   else
     success "$found agent CLI(s) detected"
   fi

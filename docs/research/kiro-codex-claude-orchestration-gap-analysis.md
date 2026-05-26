@@ -22,7 +22,7 @@ Supermission should occupy the durable collaboration/control layer:
 
 - repo-native work records
 - requirements and design gates before code
-- runner-neutral execution through Codex, Claude, shell, and future adapters
+- runner-neutral execution through Codex, Claude, Kiro, Kimi, shell, and future adapters
 - footprint maps and evaluation evidence for every meaningful agent action
 - validation and review before handoff
 - fast team-readable status

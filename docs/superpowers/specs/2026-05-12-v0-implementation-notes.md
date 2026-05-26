@@ -67,6 +67,7 @@ supermission monitor
 mission summary
 supermission review create
 supermission task add
+supermission task rename
 supermission task set-status
 supermission task audit-scope
 ```
@@ -136,7 +137,8 @@ supermission task audit-scope
 - 长时间未更新的 running task 会被 `supermission doctor` 诊断为 `stuck` warning。
 - `mission summary` 会输出适合人类快速扫读的一屏摘要：状态、发现、任务数、变更数、checkpoint 和关键 artifact 路径。
 - `supermission review create` 会根据当前 evidence 生成 `review.md`，用于人工审核 intent、scope、validation、rollback、handoff。
-- `supermission task add/set-status` 支持登记旁路任务或线性写入任务，但不自动执行调度。
+- `supermission task add/rename/set-status` 支持登记、改名旁路任务或线性写入任务，但不自动执行调度。
+- `superm` REPL 在 tmux 中创建新 work item 时会自动生成标准终端布局：当前 pane 保留控制台，右侧、底部、右下角 pane 分别运行 status、monitor、trace；可用 `SUPERMISSION_TERMINAL_LAYOUT=0` 关闭。
 - task ledger 已支持基础依赖解锁：依赖任务全部 `done` 后，pending task 会自动切到 `ready`。
 - task ledger 已支持线性写入保护：同一 mission 同一时间只允许一个 `linear_write` task 处于 `running`；`sidecar_readonly` 和 `sidecar_artifact` 可以并行记录。
 - task ledger 已支持 scope audit：使用 `minimatch` 检查当前 git changes 是否违反 task `scope.allow` / `scope.deny`，并在越界时写入 `scope_drift` supervisor signal 和 `scope-audit.md`。

@@ -17,7 +17,7 @@ supermission --help
 
 ```bash
 cd your-project
-supermission init              # 自动检测已安装的 Agent CLI（claude、codex、gemini 等）
+supermission init              # 自动检测已安装的 Agent CLI（codex、claude、kiro、kimi 等）
 supermission pipeline init     # 创建流水线模板
 ```
 
@@ -62,7 +62,7 @@ supermission handoff work-001
 
 ```bash
 supermission board             # 看板视图
-supermission list              # 所有任务记录
+supermission list              # 活跃任务记录
 supermission status work-001   # 单个任务状态
 supermission summary work-001  # 详细摘要
 supermission cost work-001     # Token 用量和成本估算
@@ -93,7 +93,7 @@ supermission release work-001
 ```yaml
 # .supermission/runners.yaml（由 init 自动生成）
 default_backend: auto
-fallback_order: [claude, codex, gemini]
+fallback_order: [codex, claude, kiro, kimi, gemini]
 routing:
   planner-agent: gemini # 便宜，擅长规划
   worker-agent: claude # 编码最强
@@ -135,7 +135,7 @@ stages:
 | `supermission quick "目标"`               | 一键端到端执行         |
 | `supermission pipeline run <名称> "目标"` | 多 Agent 流水线        |
 | `supermission board`                      | 看板视图               |
-| `supermission list`                       | 列出所有任务           |
+| `supermission list`                       | 列出活跃任务           |
 | `supermission cost <id>`                  | Token/成本报告         |
 | `supermission serve`                      | Web 仪表盘             |
 | `supermission team init`                  | 初始化团队协作         |
