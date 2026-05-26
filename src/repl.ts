@@ -3,6 +3,94 @@ import { spawn } from "node:child_process";
 import { WorkStore } from "./store.js";
 import { resolveBackend } from "./runner.js";
 import { runCli } from "./cli.js";
+import type { WorkSpec } from "./types.js";
+
+const DEFAULT_AGENT_LANGUAGE_INSTRUCTION =
+  "Reply in the same language as the user's request unless the user explicitly asks for another language. " +
+  "When the language is ambiguous, default to English.";
+
+type PromptWorkContext = Pick<WorkSpec, "id" | "goal" | "acceptance" | "status">;
+
+type SlashCommand = {
+  name: string;
+  completion: string;
+  description: string;
+};
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { name: "help", completion: "/help", description: "Show command help" },
+  { name: "board", completion: "/board", description: "Board view" },
+  { name: "list", completion: "/list", description: "List all work items" },
+  { name: "use", completion: "/use ", description: "Switch to work item #id" },
+  { name: "close", completion: "/close ", description: "Close the current or specified work item" },
+  { name: "new", completion: "/new ", description: "Create a new work item" },
+  { name: "status", completion: "/status ", description: "Show work status" },
+  { name: "cost", completion: "/cost ", description: "Show token cost" },
+  { name: "info", completion: "/info", description: "Show environment information" },
+  { name: "pipeline", completion: "/pipeline", description: "Show pipelines" },
+  { name: "clear", completion: "/clear", description: "Leave the current work item" },
+  { name: "quit", completion: "/quit", description: "Exit superm" },
+  { name: "tasks", completion: "/tasks", description: "Show task ledger" },
+  { name: "trace", completion: "/trace", description: "Show trace evidence" },
+  { name: "summary", completion: "/summary", description: "Show work summary" },
+];
+
+export function suggestSlashCommands(input: string): string[] {
+  if (!input.startsWith("/")) return [];
+  const normalized = input.trimEnd();
+  return SLASH_COMMANDS.filter((command) =>
+    command.completion.trimEnd().startsWith(normalized),
+  ).map((command) => command.completion.trimEnd());
+}
+
+function formatSlashSuggestions(input: string): string {
+  const suggestions = suggestSlashCommands(input);
+  if (suggestions.length === 0) return "";
+  return suggestions
+    .map((suggestion) => {
+      const command = SLASH_COMMANDS.find(
+        (candidate) => candidate.completion.trimEnd() === suggestion,
+      );
+      return command ? `  ${suggestion.padEnd(12)} ${command.description}` : `  ${suggestion}`;
+    })
+    .join("\n");
+}
+
+export function formatHelpText(): string {
+  return `
+  /board              Board view
+  /list               List all work items
+  /use <id>           Switch to work item #id
+  /close [id]         Close the current or specified work item
+  /new "goal"         Create a new work item
+  /status [id]        Show work status
+  /cost [id]          Show token cost
+  /info               Show environment information
+  /pipeline           Show pipelines
+  /clear              Leave the current work item
+  /quit               Exit superm
+
+  Type normal text -> enter an Agent interactive session
+`;
+}
+
+export function buildAgentPrompt({
+  input,
+  work,
+}: {
+  input: string;
+  work: PromptWorkContext;
+}): string {
+  const userRequest =
+    work.status !== "draft"
+      ? `[Work #${work.id}] Goal: ${work.goal}\n` +
+        (work.acceptance.length > 0 ? `Acceptance: ${work.acceptance.join("; ")}\n` : "") +
+        `Status: ${work.status}\n` +
+        `\nUser request: ${input}`
+      : input;
+
+  return `${DEFAULT_AGENT_LANGUAGE_INSTRUCTION}\n\n${userRequest}`;
+}
 
 export async function startRepl(repo: string): Promise<void> {
   const { basename } = await import("node:path");
@@ -22,15 +110,15 @@ export async function startRepl(repo: string): Promise<void> {
 
   let currentWorkId: string | null = null;
 
-  const prompt = () => currentWorkId ? `superm #${currentWorkId}> ` : `superm> `;
+  const prompt = () => (currentWorkId ? `superm #${currentWorkId}> ` : `superm> `);
 
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: prompt(),
     completer: (line: string) => {
-      const cmds = ["/help", "/board", "/list", "/use ", "/close ", "/new ", "/status ", "/cost ", "/info", "/pipeline", "/clear", "/quit"];
       if (line.startsWith("/")) {
+        const cmds = SLASH_COMMANDS.map((command) => command.completion);
         const hits = cmds.filter((c) => c.startsWith(line));
         return [hits.length ? hits : cmds, line];
       }
@@ -61,9 +149,9 @@ export async function startRepl(repo: string): Promise<void> {
         const newBackend = input.slice("/backend ".length).trim();
         if (newBackend) {
           backend = newBackend as typeof backend;
-          console.log(`  [Agent 切换为: ${backend}]`);
+          console.log(`  [Agent switched to: ${backend}]`);
         } else {
-          console.log(`  当前 Agent: ${backend}`);
+          console.log(`  Current Agent: ${backend}`);
         }
         rl.prompt();
         return;
@@ -91,16 +179,9 @@ export async function startRepl(repo: string): Promise<void> {
       console.log(`  [work #${currentWorkId} created]`);
     }
 
-    // Build prompt with work context if resuming
-    let agentPrompt = input;
+    // Build prompt with work context if resuming.
     const spec = await store.readWork(currentWorkId);
-    if (spec.status !== "draft") {
-      // Resuming existing work — give agent context
-      agentPrompt = `[Work #${spec.id}] Goal: ${spec.goal}\n`
-        + (spec.acceptance.length > 0 ? `Acceptance: ${spec.acceptance.join("; ")}\n` : "")
-        + `Status: ${spec.status}\n`
-        + `\nUser request: ${input}`;
-    }
+    const agentPrompt = buildAgentPrompt({ input, work: spec });
 
     // Launch agent in full interactive mode (Option A)
     console.log(`  [entering ${backend} session — Ctrl+D or /exit to return]\n`);
@@ -112,7 +193,9 @@ export async function startRepl(repo: string): Promise<void> {
     const durationMs = Math.round(performance.now() - started);
     const finishedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
-    console.log(`\n  [${backend} session ended (exit ${exitCode}, ${(durationMs / 1000).toFixed(1)}s)]`);
+    console.log(
+      `\n  [${backend} session ended (exit ${exitCode}, ${(durationMs / 1000).toFixed(1)}s)]`,
+    );
 
     // Record evidence
     await store.appendEvent(currentWorkId, "agent.session", "local-user", {
@@ -157,18 +240,32 @@ export async function startRepl(repo: string): Promise<void> {
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFileNode);
     try {
-      const { stdout: diffOutput } = await execFileAsync("git", ["diff", "--stat"], { cwd: repo, timeout: 5000 });
-      const { stdout: diffFull } = await execFileAsync("git", ["diff"], { cwd: repo, timeout: 5000 });
+      const { stdout: diffOutput } = await execFileAsync("git", ["diff", "--stat"], {
+        cwd: repo,
+        timeout: 5000,
+      });
+      const { stdout: diffFull } = await execFileAsync("git", ["diff"], {
+        cwd: repo,
+        timeout: 5000,
+      });
       if (diffOutput.trim()) {
-        console.log(`  [变更: ${diffOutput.trim().split("\n").length} 个文件]`);
+        console.log(`  [changes: ${diffOutput.trim().split("\n").length} file(s)]`);
         // Append diff summary to run log
-        const diffSection = "\n## Changes After Session\n\n```\n" + diffOutput.trim() + "\n```\n\n## Diff\n\n```diff\n" + diffFull.slice(0, 5000) + (diffFull.length > 5000 ? "\n... (truncated)" : "") + "\n```\n";
+        const diffSection =
+          "\n## Changes After Session\n\n```\n" +
+          diffOutput.trim() +
+          "\n```\n\n## Diff\n\n```diff\n" +
+          diffFull.slice(0, 5000) +
+          (diffFull.length > 5000 ? "\n... (truncated)" : "") +
+          "\n```\n";
         await writeFile(runLogPath, runLog + diffSection, "utf8");
         // Also save full patch
         const patchPath = store.paths(currentWorkId).patch;
         await writeFile(patchPath, diffFull, "utf8");
       }
-    } catch { /* no git or no changes — skip */ }
+    } catch {
+      /* no git or no changes — skip */
+    }
 
     rl.resume();
     rl.setPrompt(prompt());
@@ -198,21 +295,7 @@ async function handleSlash(
   switch (cmd) {
     case "":
     case "help":
-      console.log(`
-  /board              看板视图
-  /list               列出所有任务
-  /use <id>           切换到任务 #id
-  /close [id]         关闭当前或指定任务
-  /new "goal"         创建新任务
-  /status [id]        查看任务状态
-  /cost [id]          查看 Token 成本
-  /info               查看环境信息
-  /pipeline           查看流水线
-  /clear              脱离当前任务
-  /quit               退出 superm
-
-  直接输入文字 → 进入 Agent 交互会话
-`);
+      console.log(formatHelpText());
       return {};
 
     case "quit":
@@ -222,44 +305,80 @@ async function handleSlash(
       break; // eslint: no-fallthrough
 
     case "use":
-      if (!arg) { console.log("  用法: /use <id>"); return {}; }
+      if (!arg) {
+        console.log("  Usage: /use <id>");
+        return {};
+      }
       try {
         const spec = await store.readWork(arg);
-        console.log(`  [切换到 #${spec.id}: ${spec.goal}]`);
+        console.log(`  [switched to #${spec.id}: ${spec.goal}]`);
         return { newWorkId: arg };
-      } catch { console.log(`  [任务 #${arg} 不存在]`); }
+      } catch {
+        console.log(`  [work #${arg} does not exist]`);
+      }
       return {};
 
     case "close": {
       const id = arg || currentWorkId;
-      if (!id) { console.log("  用法: /close <id>"); return {}; }
+      if (!id) {
+        console.log("  Usage: /close <id>");
+        return {};
+      }
       try {
         await store.updateStatus(id, "completed", "local-user", "Closed from REPL");
-        console.log(`  [#${id} 已关闭]`);
+        console.log(`  [#${id} closed]`);
         if (id === currentWorkId) return { newWorkId: null };
-      } catch (e) { console.log(`  [错误: ${e instanceof Error ? e.message : e}]`); }
+      } catch (e) {
+        console.log(`  [error: ${e instanceof Error ? e.message : e}]`);
+      }
       return {};
     }
 
     case "new": {
       const goal = arg.replace(/^["']|["']$/g, "");
-      if (!goal) { console.log('  用法: /new "目标描述"'); return {}; }
-      const id = await store.createWork({ goal, actor: "local-user", acceptance: [], validationCommands: [] });
-      console.log(`  [任务 #${id} 已创建: ${goal}]`);
+      if (!goal) {
+        console.log('  Usage: /new "goal"');
+        return {};
+      }
+      const id = await store.createWork({
+        goal,
+        actor: "local-user",
+        acceptance: [],
+        validationCommands: [],
+      });
+      console.log(`  [work #${id} created: ${goal}]`);
       return { newWorkId: id };
     }
 
     case "clear":
-      console.log("  [已脱离当前任务]");
+      console.log("  [left current work item]");
       return { newWorkId: null };
 
     default: {
-      const known = ["board", "list", "status", "cost", "info", "pipeline", "tasks", "trace", "summary"];
+      const known = [
+        "board",
+        "list",
+        "status",
+        "cost",
+        "info",
+        "pipeline",
+        "tasks",
+        "trace",
+        "summary",
+      ];
       if (known.includes(cmd)) {
-        try { await runCli([...parts, "--repo", repo]); }
-        catch (e) { console.error(`  错误: ${e instanceof Error ? e.message : e}`); }
+        try {
+          await runCli([...parts, "--repo", repo]);
+        } catch (e) {
+          console.error(`  Error: ${e instanceof Error ? e.message : e}`);
+        }
       } else {
-        console.log(`  未知命令: /${cmd}。输入 / 查看可用命令。`);
+        const suggestions = formatSlashSuggestions(input);
+        if (suggestions) {
+          console.log(`  Matching commands:\n${suggestions}`);
+        } else {
+          console.log(`  Unknown command: /${cmd}. Type / to see available commands.`);
+        }
       }
       return {};
     }
@@ -302,7 +421,7 @@ function launchAgentSession(backend: string, initialPrompt: string, cwd: string)
     });
 
     child.on("error", (err) => {
-      console.error(`  [无法启动 ${backend}: ${err.message}]`);
+      console.error(`  [failed to start ${backend}: ${err.message}]`);
       resolve(127);
     });
 

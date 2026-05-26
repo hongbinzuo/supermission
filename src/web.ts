@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { exec, spawn } from "node:child_process";
 import { readFile, appendFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { WorkStore } from "./store.js";
 import type { WorkSpec } from "./types.js";
 import { readTeamRegistry } from "./identity.js";
@@ -13,6 +14,21 @@ export type ServeOptions = {
   repo: string;
   open?: boolean;
 };
+
+export function resolvePipelineSavePath(repo: string, name: string): string {
+  const pipelineName = name.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(pipelineName)) {
+    throw new Error("invalid pipeline name");
+  }
+
+  const dir = resolve(repo, ".supermission", "pipelines");
+  const filePath = resolve(dir, `${pipelineName}.yaml`);
+  if (basename(filePath) !== `${pipelineName}.yaml` || !filePath.startsWith(`${dir}/`)) {
+    throw new Error("invalid pipeline name");
+  }
+
+  return filePath;
+}
 
 export async function startServer(options: ServeOptions): Promise<void> {
   const store = new WorkStore(options.repo);
@@ -45,11 +61,11 @@ export async function startServer(options: ServeOptions): Promise<void> {
         const body = await readBody(req);
         const data = JSON.parse(body);
         const { writeFile: writeFileFs, mkdir: mkdirFs } = await import("node:fs/promises");
-        const { join: joinPath } = await import("node:path");
         const YAML = (await import("yaml")).default;
-        const dir = joinPath(store.repo, ".supermission", "pipelines");
+        const filePath = resolvePipelineSavePath(store.repo, String(data.name ?? ""));
+        const dir = join(store.repo, ".supermission", "pipelines");
         await mkdirFs(dir, { recursive: true });
-        await writeFileFs(joinPath(dir, data.name + ".yaml"), YAML.stringify(data.pipeline), "utf8");
+        await writeFileFs(filePath, YAML.stringify(data.pipeline), "utf8");
         json(res, { ok: true, name: data.name });
       } else if (url.pathname.startsWith("/api/close/")) {
         const workId = decodeURIComponent(url.pathname.slice("/api/close/".length));
@@ -68,15 +84,31 @@ export async function startServer(options: ServeOptions): Promise<void> {
           // Kill running agent
           const killed = stopWorkAgent(workId);
           const newStatus = action === "pause" ? "paused" : "failed";
-          await store.updateStatus(workId, newStatus as import("./types.js").WorkStatus, "dashboard-user", `${action} from dashboard`);
+          await store.updateStatus(
+            workId,
+            newStatus as import("./types.js").WorkStatus,
+            "dashboard-user",
+            `${action} from dashboard`,
+          );
           json(res, { ok: true, workId, status: newStatus, killed });
         } else {
           const statusMap: Record<string, string> = {
-            complete: "completed", reopen: "draft", archive: "completed",
+            complete: "completed",
+            reopen: "draft",
+            archive: "completed",
           };
           const newStatus = statusMap[action];
-          if (!newStatus) { res.writeHead(400); res.end(JSON.stringify({ error: "unknown action" })); return; }
-          await store.updateStatus(workId, newStatus as import("./types.js").WorkStatus, "dashboard-user", `${action} from dashboard`);
+          if (!newStatus) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: "unknown action" }));
+            return;
+          }
+          await store.updateStatus(
+            workId,
+            newStatus as import("./types.js").WorkStatus,
+            "dashboard-user",
+            `${action} from dashboard`,
+          );
           json(res, { ok: true, workId, status: newStatus });
         }
       } else {
@@ -121,7 +153,9 @@ function json(res: ServerResponse, data: unknown): void {
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     let body = "";
-    req.on("data", (chunk: string) => { body += chunk; });
+    req.on("data", (chunk: string) => {
+      body += chunk;
+    });
     req.on("end", () => resolve(body));
   });
 }
@@ -153,7 +187,12 @@ async function startWorkAgent(store: WorkStore, workId: string) {
   }
 
   // Update status to running
-  await store.updateStatus(workId, "running", "dashboard-user", `Started ${backend} from dashboard`);
+  await store.updateStatus(
+    workId,
+    "running",
+    "dashboard-user",
+    `Started ${backend} from dashboard`,
+  );
 
   // Build the prompt
   const { buildWorkPrompt } = await import("./runner.js");
@@ -166,11 +205,25 @@ async function startWorkAgent(store: WorkStore, workId: string) {
   switch (backend) {
     case "claude":
       cmd = "claude";
-      args = ["--print", "--no-session-persistence", "--output-format", "text", "--dangerously-skip-permissions", prompt];
+      args = [
+        "--print",
+        "--no-session-persistence",
+        "--output-format",
+        "text",
+        "--dangerously-skip-permissions",
+        prompt,
+      ];
       break;
     case "codex":
       cmd = "codex";
-      args = ["exec", "-C", store.repo, "--ephemeral", "--dangerously-bypass-approvals-and-sandbox", prompt];
+      args = [
+        "exec",
+        "-C",
+        store.repo,
+        "--ephemeral",
+        "--dangerously-bypass-approvals-and-sandbox",
+        prompt,
+      ];
       break;
     case "gemini":
       cmd = "gemini";
@@ -212,23 +265,48 @@ async function startWorkAgent(store: WorkStore, workId: string) {
 
     try {
       if (exitCode !== 0) {
-        await store.updateStatus(workId, "failed", "dashboard-user", `${backend} exited ${exitCode}`);
+        await store.updateStatus(
+          workId,
+          "failed",
+          "dashboard-user",
+          `${backend} exited ${exitCode}`,
+        );
       } else if (spec.validation_commands.length > 0) {
         // Agent succeeded — run validation automatically
         const valResult = await store.validate(workId, "validator-agent", {});
         if (valResult.exitCode === 0) {
           // Validation passed — auto-complete if no acceptance criteria need human review
           if (spec.acceptance.length === 0) {
-            await store.updateStatus(workId, "completed", "dashboard-user", "Auto-completed: agent + validation passed");
+            await store.updateStatus(
+              workId,
+              "completed",
+              "dashboard-user",
+              "Auto-completed: agent + validation passed",
+            );
           } else {
-            await store.updateStatus(workId, "validated", "dashboard-user", "Agent + validation passed, review acceptance criteria");
+            await store.updateStatus(
+              workId,
+              "validated",
+              "dashboard-user",
+              "Agent + validation passed, review acceptance criteria",
+            );
           }
         } else {
-          await store.updateStatus(workId, "failed", "dashboard-user", "Validation failed after agent completed");
+          await store.updateStatus(
+            workId,
+            "failed",
+            "dashboard-user",
+            "Validation failed after agent completed",
+          );
         }
       } else if (spec.acceptance.length > 0) {
         // No validation commands but has acceptance criteria — needs human review
-        await store.updateStatus(workId, "needs_review", "dashboard-user", `${backend} completed, review needed`);
+        await store.updateStatus(
+          workId,
+          "needs_review",
+          "dashboard-user",
+          `${backend} completed, review needed`,
+        );
       } else {
         // No validation, no acceptance — auto-complete
         await store.updateStatus(workId, "completed", "dashboard-user", `${backend} completed`);
@@ -239,14 +317,18 @@ async function startWorkAgent(store: WorkStore, workId: string) {
         exit_code: exitCode,
         stdout_chars: stdout.length,
       });
-    } catch { /* ignore cleanup errors */ }
+    } catch {
+      /* ignore cleanup errors */
+    }
   });
 
   child.on("error", async () => {
     runningAgents.delete(workId);
     try {
       await store.updateStatus(workId, "failed", "dashboard-user", `${backend} failed to start`);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   return { ok: true, workId, backend, pid, status: "running" };
@@ -293,10 +375,19 @@ async function getEnvironment(store: WorkStore) {
   // Detect Codex plugins
   const codexPlugins: string[] = [];
   try {
-    const pluginDir = join(home, ".codex", ".tmp", "bundled-marketplaces", "openai-bundled", "plugins");
+    const pluginDir = join(
+      home,
+      ".codex",
+      ".tmp",
+      "bundled-marketplaces",
+      "openai-bundled",
+      "plugins",
+    );
     const entries = await readdir(pluginDir);
     for (const entry of entries) codexPlugins.push(entry);
-  } catch { /* no plugins */ }
+  } catch {
+    /* no plugins */
+  }
 
   // Detect Claude plugins
   let claudePlugins: string[] = [];
@@ -307,7 +398,9 @@ async function getEnvironment(store: WorkStore) {
     if (data.plugins && typeof data.plugins === "object") {
       claudePlugins = Object.keys(data.plugins);
     }
-  } catch { /* no plugins */ }
+  } catch {
+    /* no plugins */
+  }
 
   // Runner config
   const config = await store.readRunnerConfig();
@@ -315,7 +408,11 @@ async function getEnvironment(store: WorkStore) {
   return {
     clis,
     plugins: { codex: codexPlugins, claude: claudePlugins },
-    config: { default_backend: config.default_backend, fallback_order: config.fallback_order, routing: config.routing },
+    config: {
+      default_backend: config.default_backend,
+      fallback_order: config.fallback_order,
+      routing: config.routing,
+    },
   };
 }
 
@@ -330,14 +427,26 @@ async function getWorkDetail(store: WorkStore, workId: string) {
   let runLog = "";
   let validationLog = "";
   let plan = "";
-  try { runLog = await readFile(paths.runLog, "utf8"); } catch { /* empty */ }
-  try { validationLog = await readFile(paths.validationLog, "utf8"); } catch { /* empty */ }
-  try { plan = await readFile(paths.plan, "utf8"); } catch { /* empty */ }
+  try {
+    runLog = await readFile(paths.runLog, "utf8");
+  } catch {
+    /* empty */
+  }
+  try {
+    validationLog = await readFile(paths.validationLog, "utf8");
+  } catch {
+    /* empty */
+  }
+  try {
+    plan = await readFile(paths.plan, "utf8");
+  } catch {
+    /* empty */
+  }
 
   return { spec, tasks, events, changes, runLog, validationLog, plan };
 }
 
-function dashboardHtml(port: number): string {
+export function dashboardHtml(port: number): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -589,7 +698,7 @@ const i18n = {
 
 function L(key) { return i18n[currentLang][key] || key; }
 
-function setLang(lang) {
+async function setLang(lang) {
   currentLang = lang;
   document.getElementById('subtitle').textContent = L('subtitle');
   document.getElementById('lbl-kanban').textContent = L('kanban');
@@ -598,7 +707,14 @@ function setLang(lang) {
   document.getElementById('lbl-env').textContent = L('env');
   document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-' + lang).classList.add('active');
-  loadWorks();
+  await refreshCurrentView();
+}
+
+async function refreshCurrentView() {
+  if (currentView === 'kanban') { await loadWorks(); }
+  else if (currentView === 'pipelines') { await loadPipelines(); }
+  else if (currentView === 'builder') { await loadBuilder(); }
+  else if (currentView === 'env') { await loadEnvironment(); }
 }
 
 function switchView(view) {
