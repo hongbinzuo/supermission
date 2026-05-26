@@ -65,15 +65,21 @@ export async function performUpdate(): Promise<void> {
   console.log("Updating supermission...\n");
 
   try {
-    // Pull latest
+    // Pull latest (reset to origin if diverged)
     console.log("  Pulling latest...");
-    await execFileAsync("git", ["pull", "--ff-only"], { cwd: INSTALL_DIR, timeout: 30000 });
+    try {
+      await execFileAsync("git", ["fetch", "origin"], { cwd: INSTALL_DIR, timeout: 15000 });
+      await execFileAsync("git", ["reset", "--hard", "origin/main"], { cwd: INSTALL_DIR, timeout: 5000 });
+    } catch {
+      // If fetch fails, try simple pull
+      await execFileAsync("git", ["pull", "--ff-only"], { cwd: INSTALL_DIR, timeout: 30000 });
+    }
 
     // Install deps
     console.log("  Installing dependencies...");
     const hasBun = await commandExists("bun");
     if (hasBun) {
-      await execFileAsync("bun", ["install", "--frozen-lockfile"], { cwd: INSTALL_DIR, timeout: 60000 });
+      await execFileAsync("bun", ["install"], { cwd: INSTALL_DIR, timeout: 60000 });
     } else {
       await execFileAsync("npm", ["install"], { cwd: INSTALL_DIR, timeout: 60000 });
     }
