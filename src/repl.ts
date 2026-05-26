@@ -128,7 +128,7 @@ export async function startRepl(repo: string): Promise<void> {
 
   // Show inline hint as user types slash commands
   if (process.stdin.isTTY) {
-    const emitKeypressEvents = await import("node:readline").then(m => m.emitKeypressEvents);
+    const emitKeypressEvents = await import("node:readline").then((m) => m.emitKeypressEvents);
     emitKeypressEvents(process.stdin);
     process.stdin.on("keypress", () => {
       const line = (rl as unknown as { line: string }).line;

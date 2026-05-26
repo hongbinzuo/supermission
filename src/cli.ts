@@ -96,7 +96,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
           fallback_order: [],
           routing: {},
         });
-        console.log("\nDone. Try: supermission quick \"Your task\" --command \"echo done\"");
+        console.log('\nDone. Try: supermission quick "Your task" --command "echo done"');
         return;
       }
 
@@ -119,7 +119,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
       console.log(`\nDefault: ${available.length > 1 ? "auto (smart selection)" : defaultBackend}`);
       console.log(`Fallback order: ${available.join(" → ")}`);
-      console.log("\nDone. Try: supermission quick \"Describe your task here\"");
+      console.log('\nDone. Try: supermission quick "Describe your task here"');
     });
 
   program
@@ -375,7 +375,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     .action(async (options: RunnerCliOptions) => {
       const store = storeFrom(program);
       const runnerConfig = await store.readRunnerConfig();
-      const resolvedBackend = options.backend ?? (runnerConfig.default_backend === "auto" ? "shell" : runnerConfig.default_backend);
+      const resolvedBackend =
+        options.backend ??
+        (runnerConfig.default_backend === "auto" ? "shell" : runnerConfig.default_backend);
       const mergedOptions = mergeRunnerOptions(runnerConfig, resolvedBackend, options);
       if (resolvedBackend === "shell" && !mergedOptions.command) {
         throw new Error("shell runner requires --command");
@@ -405,7 +407,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         mergedOptions,
       );
       const policy = await store.readPolicy();
-      console.log(`${resolvedBackend} smoke exit ${execution.exitCode} (${execution.durationMs}ms)`);
+      console.log(
+        `${resolvedBackend} smoke exit ${execution.exitCode} (${execution.durationMs}ms)`,
+      );
       if (execution.response) {
         console.log(redactSecrets(execution.response, policy.redaction.patterns).trimEnd());
       }
@@ -454,7 +458,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       ) => {
         const store = storeFrom(program);
         const runnerConfig = await store.readRunnerConfig();
-        const backend: RunnerBackend = options.backend ?? (runnerConfig.default_backend === "auto" ? "record" : runnerConfig.default_backend);
+        const backend: RunnerBackend =
+          options.backend ??
+          (runnerConfig.default_backend === "auto" ? "record" : runnerConfig.default_backend);
         const mergedOptions = mergeRunnerOptions(runnerConfig, backend, options);
         // Default: interactive. --silent disables it. --stream is middle ground.
         if (options.silent) {
@@ -549,7 +555,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       if (options.json) {
         console.log(
           JSON.stringify(
-            works.map((w) => ({ id: w.id, status: w.status, goal: w.goal, updated_at: w.updated_at })),
+            works.map((w) => ({
+              id: w.id,
+              status: w.status,
+              goal: w.goal,
+              updated_at: w.updated_at,
+            })),
             null,
             2,
           ),
@@ -619,16 +630,32 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       }
 
       if (options.json) {
-        console.log(JSON.stringify(filtered.map((w) => ({
-          id: w.id, status: w.status, goal: w.goal, assignee: w.assignee ?? "-", team: w.team ?? "-",
-        })), null, 2));
+        console.log(
+          JSON.stringify(
+            filtered.map((w) => ({
+              id: w.id,
+              status: w.status,
+              goal: w.goal,
+              assignee: w.assignee ?? "-",
+              team: w.team ?? "-",
+            })),
+            null,
+            2,
+          ),
+        );
         return;
       }
 
       // Group by status
       const columns: Record<string, typeof filtered> = {
-        draft: [], planned: [], approved: [], running: [],
-        needs_review: [], validated: [], completed: [], other: [],
+        draft: [],
+        planned: [],
+        approved: [],
+        running: [],
+        needs_review: [],
+        validated: [],
+        completed: [],
+        other: [],
       };
       for (const w of filtered) {
         const col = columns[w.status] ?? columns.other;
@@ -1357,7 +1384,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         const runnerConfig = await store.readRunnerConfig();
         const spec = await store.beginRun(workId, options.actor);
 
-        if (options.backend === "record" || (!options.backend && runnerConfig.default_backend === "record" && runnerConfig.fallback_order.length === 0)) {
+        if (
+          options.backend === "record" ||
+          (!options.backend &&
+            runnerConfig.default_backend === "record" &&
+            runnerConfig.fallback_order.length === 0)
+        ) {
           await store.recordRun(workId, options.actor, options.prompt);
           console.log(`recorded run for ${workId}`);
         } else {
@@ -1419,7 +1451,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
   // --- Pipeline commands ---
 
-  const pipelineCmd = program.command("pipeline").description("Manage and run multi-agent pipelines");
+  const pipelineCmd = program
+    .command("pipeline")
+    .description("Manage and run multi-agent pipelines");
 
   pipelineCmd
     .command("init")
@@ -1512,8 +1546,17 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         console.log(`Pipeline: ${result.pipeline}`);
         console.log(`Status: ${result.status}`);
         for (const stage of result.stages) {
-          const icon = stage.status === "completed" ? "✓" : stage.status === "skipped" ? "○" : stage.status === "gate_waiting" ? "⏸" : "✗";
-          console.log(`  ${icon} ${stage.id} — ${stage.status} (${stage.durationMs}ms)${stage.backend ? ` [${stage.backend}]` : ""}`);
+          const icon =
+            stage.status === "completed"
+              ? "✓"
+              : stage.status === "skipped"
+                ? "○"
+                : stage.status === "gate_waiting"
+                  ? "⏸"
+                  : "✗";
+          console.log(
+            `  ${icon} ${stage.id} — ${stage.status} (${stage.durationMs}ms)${stage.backend ? ` [${stage.backend}]` : ""}`,
+          );
         }
 
         if (result.status === "failed") process.exitCode = 1;
@@ -1584,13 +1627,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
 
       // Rough cost estimate (input+output blended)
       const costPerMToken: Record<string, number> = {
-        claude: 9.0,    // ~$3 input + $15 output blended
-        codex: 5.0,     // ~$2 input + $8 output blended
-        gemini: 1.25,   // ~$0.5 input + $2 output blended
-        aider: 5.0,     // depends on model
+        claude: 9.0, // ~$3 input + $15 output blended
+        codex: 5.0, // ~$2 input + $8 output blended
+        gemini: 1.25, // ~$0.5 input + $2 output blended
+        aider: 5.0, // depends on model
         opencode: 5.0,
         copilot: 4.0,
-        "amazon-q": 0,  // included in AWS
+        "amazon-q": 0, // included in AWS
         goose: 5.0,
         kiro: 5.0,
         grok: 3.0,
@@ -1605,7 +1648,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       }
 
       if (options.json) {
-        console.log(JSON.stringify({ totalTokens, totalDurationMs, runnerCalls, estimatedCost, byBackend }, null, 2));
+        console.log(
+          JSON.stringify(
+            { totalTokens, totalDurationMs, runnerCalls, estimatedCost, byBackend },
+            null,
+            2,
+          ),
+        );
         return;
       }
 
@@ -1619,7 +1668,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
         for (const [backend, data] of Object.entries(byBackend)) {
           const rate = costPerMToken[backend] ?? 5.0;
           const cost = (data.tokens / 1_000_000) * rate;
-          console.log(`    ${backend}: ${data.tokens.toLocaleString()} tokens, ${data.calls} call(s), ${(data.durationMs / 1000).toFixed(1)}s, ~$${cost.toFixed(4)}`);
+          console.log(
+            `    ${backend}: ${data.tokens.toLocaleString()} tokens, ${data.calls} call(s), ${(data.durationMs / 1000).toFixed(1)}s, ~$${cost.toFixed(4)}`,
+          );
         }
       }
 
@@ -1669,7 +1720,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     const store = storeFrom(program);
 
     // Background update check (non-blocking)
-    import("./updater.js").then(m => m.checkForUpdates(true)).catch(() => {});
+    import("./updater.js").then((m) => m.checkForUpdates(true)).catch(() => {});
 
     // Auto-init if no runners.yaml exists
     const { readFile: readFs } = await import("node:fs/promises");
@@ -1684,7 +1735,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       const config = await store.readRunnerConfig();
       await store.writeRunnerConfig({
         ...config,
-        default_backend: available.length > 1 ? "auto" : available[0] ?? "shell",
+        default_backend: available.length > 1 ? "auto" : (available[0] ?? "shell"),
         fallback_order: available,
         routing: {},
       });
@@ -1695,7 +1746,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     }
 
     // Start dashboard in background, keep CLI interactive
-    const { readFile: readFs2, writeFile: writeFs2, mkdir: mkdirFs2 } = await import("node:fs/promises");
+    const {
+      readFile: readFs2,
+      writeFile: writeFs2,
+      mkdir: mkdirFs2,
+    } = await import("node:fs/promises");
     const { join: joinPath2 } = await import("node:path");
     const { basename } = await import("node:path");
     const { homedir } = await import("node:os");
@@ -1706,25 +1761,39 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
     const projectName = basename(store.repo);
 
     // Register this repo with the global server registry
-    let serverInfo: { pid?: number; port: number; repos: Record<string, string> } = { port: 4000, repos: {} };
+    let serverInfo: { pid?: number; port: number; repos: Record<string, string> } = {
+      port: 4000,
+      repos: {},
+    };
     try {
       serverInfo = JSON.parse(await readFs2(serverFile, "utf8"));
-    } catch { /* first time */ }
+    } catch {
+      /* first time */
+    }
     serverInfo.repos[projectName] = store.repo;
 
     // Check if server is already running
     let serverRunning = false;
     if (serverInfo.pid) {
-      try { process.kill(serverInfo.pid, 0); serverRunning = true; } catch { /* not running */ }
+      try {
+        process.kill(serverInfo.pid, 0);
+        serverRunning = true;
+      } catch {
+        /* not running */
+      }
     }
 
     if (!serverRunning) {
       // Start single global server
-      const serverProcess = spawnChild(process.execPath, [process.argv[1], "serve", "--port", "4000"], {
-        cwd: store.repo,
-        stdio: "ignore",
-        detached: true,
-      });
+      const serverProcess = spawnChild(
+        process.execPath,
+        [process.argv[1], "serve", "--port", "4000"],
+        {
+          cwd: store.repo,
+          stdio: "ignore",
+          detached: true,
+        },
+      );
       serverProcess.unref();
       serverInfo.pid = serverProcess.pid;
     }

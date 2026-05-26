@@ -95,10 +95,10 @@ supermission release work-001
 default_backend: auto
 fallback_order: [claude, codex, gemini]
 routing:
-  planner-agent: gemini        # 便宜，擅长规划
-  worker-agent: claude         # 编码最强
-  tester-agent: codex          # 擅长生成测试
-  reviewer-agent: gemini       # 便宜，擅长评审
+  planner-agent: gemini # 便宜，擅长规划
+  worker-agent: claude # 编码最强
+  tester-agent: codex # 擅长生成测试
+  reviewer-agent: gemini # 便宜，擅长评审
 ```
 
 ## 自定义流水线
@@ -129,17 +129,17 @@ stages:
 
 ## 命令速查
 
-| 命令 | 用途 |
-|------|------|
-| `supermission init` | 初始化项目，检测 Agent |
-| `supermission quick "目标"` | 一键端到端执行 |
-| `supermission pipeline run <名称> "目标"` | 多 Agent 流水线 |
-| `supermission board` | 看板视图 |
-| `supermission list` | 列出所有任务 |
-| `supermission cost <id>` | Token/成本报告 |
-| `supermission serve` | Web 仪表盘 |
-| `supermission team init` | 初始化团队协作 |
-| `supermission runner list` | 显示可用 Agent |
+| 命令                                      | 用途                   |
+| ----------------------------------------- | ---------------------- |
+| `supermission init`                       | 初始化项目，检测 Agent |
+| `supermission quick "目标"`               | 一键端到端执行         |
+| `supermission pipeline run <名称> "目标"` | 多 Agent 流水线        |
+| `supermission board`                      | 看板视图               |
+| `supermission list`                       | 列出所有任务           |
+| `supermission cost <id>`                  | Token/成本报告         |
+| `supermission serve`                      | Web 仪表盘             |
+| `supermission team init`                  | 初始化团队协作         |
+| `supermission runner list`                | 显示可用 Agent         |
 
 ## 文件结构
 

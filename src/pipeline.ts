@@ -58,7 +58,8 @@ export async function initPipelines(repo: string): Promise<void> {
       {
         id: "code",
         role: "worker-agent",
-        prompt: "Implement the feature according to the approved plan. Make minimal, focused changes.",
+        prompt:
+          "Implement the feature according to the approved plan. Make minimal, focused changes.",
         skip_on_fail: false,
       },
       {
@@ -71,7 +72,8 @@ export async function initPipelines(repo: string): Promise<void> {
       {
         id: "review",
         role: "reviewer-agent",
-        prompt: "Review all code changes. Report any issues, security concerns, or improvements needed.",
+        prompt:
+          "Review all code changes. Report any issues, security concerns, or improvements needed.",
         gate: "approve_review",
         skip_on_fail: false,
       },
@@ -139,7 +141,8 @@ export async function initPipelines(repo: string): Promise<void> {
         id: "deploy",
         role: "deploy-agent",
         backend: "shell",
-        command: "echo 'deploy step: configure your deploy command in .supermission/pipelines/deploy.yaml'",
+        command:
+          "echo 'deploy step: configure your deploy command in .supermission/pipelines/deploy.yaml'",
         skip_on_fail: false,
       },
     ],
@@ -161,7 +164,11 @@ export async function listPipelines(repo: string): Promise<Pipeline[]> {
     }
     return pipelines;
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && (error as { code: string }).code === "ENOENT") {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code: string }).code === "ENOENT"
+    ) {
       return [];
     }
     throw error;
@@ -175,7 +182,11 @@ export async function readPipeline(repo: string, name: string): Promise<Pipeline
     const text = await readFile(path, "utf8");
     return PipelineSchema.parse(YAML.parse(text));
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && (error as { code: string }).code === "ENOENT") {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code: string }).code === "ENOENT"
+    ) {
       throw new Error(`unknown pipeline: ${name}. Run \`supermission pipeline list\``);
     }
     throw error;
@@ -243,7 +254,12 @@ export async function runPipeline(
   for (const stage of pipeline.stages) {
     // Skip if requested
     if (options.skipStages?.includes(stage.id)) {
-      stageResults.push({ id: stage.id, status: "skipped", durationMs: 0, message: "skipped by user" });
+      stageResults.push({
+        id: stage.id,
+        status: "skipped",
+        durationMs: 0,
+        message: "skipped by user",
+      });
       console.log(`pipeline:${pipeline.name} [${stage.id}] skipped`);
       continue;
     }
@@ -252,7 +268,12 @@ export async function runPipeline(
     if (stage.gate && stage.gate !== "approve_plan") {
       console.log(`pipeline:${pipeline.name} [${stage.id}] waiting for gate: ${stage.gate}`);
       console.log(`  Run: supermission approve ${workId} --gate ${stage.gate}`);
-      stageResults.push({ id: stage.id, status: "gate_waiting", durationMs: 0, message: `waiting: ${stage.gate}` });
+      stageResults.push({
+        id: stage.id,
+        status: "gate_waiting",
+        durationMs: 0,
+        message: `waiting: ${stage.gate}`,
+      });
 
       // Record partial progress
       await store.appendEvent(workId, "pipeline.gate.waiting", actor, {
@@ -272,23 +293,41 @@ export async function runPipeline(
       if (stage.backend === "shell" || stage.command) {
         // Shell execution
         const { executeRunner } = await import("./runner.js");
-        const execution = await executeRunner("shell", {
-          repo: store.repo,
-          work: spec,
-          actor: stage.role,
-        }, {
-          command: stage.command ?? "echo 'no command configured'",
-          timeoutMs: stage.timeout_ms,
-        });
+        const execution = await executeRunner(
+          "shell",
+          {
+            repo: store.repo,
+            work: spec,
+            actor: stage.role,
+          },
+          {
+            command: stage.command ?? "echo 'no command configured'",
+            timeoutMs: stage.timeout_ms,
+          },
+        );
 
         const durationMs = Math.round(performance.now() - started);
         if (execution.exitCode !== 0 && !stage.skip_on_fail) {
-          stageResults.push({ id: stage.id, status: "failed", durationMs, backend: "shell", exitCode: execution.exitCode });
-          console.log(`pipeline:${pipeline.name} [${stage.id}] FAILED (exit ${execution.exitCode})`);
+          stageResults.push({
+            id: stage.id,
+            status: "failed",
+            durationMs,
+            backend: "shell",
+            exitCode: execution.exitCode,
+          });
+          console.log(
+            `pipeline:${pipeline.name} [${stage.id}] FAILED (exit ${execution.exitCode})`,
+          );
           await store.updateStatus(workId, "failed", actor, `stage ${stage.id} failed`);
           return { workId, pipeline: pipeline.name, stages: stageResults, status: "failed" };
         }
-        stageResults.push({ id: stage.id, status: "completed", durationMs, backend: "shell", exitCode: execution.exitCode });
+        stageResults.push({
+          id: stage.id,
+          status: "completed",
+          durationMs,
+          backend: "shell",
+          exitCode: execution.exitCode,
+        });
       } else {
         // Agent execution via smart selection
         const execution = await executeRunnerWithFallback(
@@ -304,15 +343,31 @@ export async function runPipeline(
 
         const durationMs = Math.round(performance.now() - started);
         if (execution.exitCode !== 0 && !stage.skip_on_fail) {
-          stageResults.push({ id: stage.id, status: "failed", durationMs, backend: execution.backend, exitCode: execution.exitCode });
-          console.log(`pipeline:${pipeline.name} [${stage.id}] FAILED (${execution.backend} exit ${execution.exitCode})`);
+          stageResults.push({
+            id: stage.id,
+            status: "failed",
+            durationMs,
+            backend: execution.backend,
+            exitCode: execution.exitCode,
+          });
+          console.log(
+            `pipeline:${pipeline.name} [${stage.id}] FAILED (${execution.backend} exit ${execution.exitCode})`,
+          );
           await store.updateStatus(workId, "failed", actor, `stage ${stage.id} failed`);
           return { workId, pipeline: pipeline.name, stages: stageResults, status: "failed" };
         }
-        stageResults.push({ id: stage.id, status: "completed", durationMs, backend: execution.backend, exitCode: execution.exitCode });
+        stageResults.push({
+          id: stage.id,
+          status: "completed",
+          durationMs,
+          backend: execution.backend,
+          exitCode: execution.exitCode,
+        });
       }
 
-      console.log(`pipeline:${pipeline.name} [${stage.id}] ✓ (${stageResults[stageResults.length - 1].durationMs}ms)`);
+      console.log(
+        `pipeline:${pipeline.name} [${stage.id}] ✓ (${stageResults[stageResults.length - 1].durationMs}ms)`,
+      );
 
       // Run validation if configured
       if (stage.validation) {
@@ -321,10 +376,20 @@ export async function runPipeline(
           commands: [stage.validation],
         });
         if (valResult.exitCode !== 0) {
-          stageResults.push({ id: `${stage.id}:validate`, status: "failed", durationMs: valResult.durationMs, exitCode: valResult.exitCode });
+          stageResults.push({
+            id: `${stage.id}:validate`,
+            status: "failed",
+            durationMs: valResult.durationMs,
+            exitCode: valResult.exitCode,
+          });
           console.log(`pipeline:${pipeline.name} [${stage.id}] validation FAILED`);
           if (!stage.skip_on_fail) {
-            await store.updateStatus(workId, "failed", actor, `stage ${stage.id} validation failed`);
+            await store.updateStatus(
+              workId,
+              "failed",
+              actor,
+              `stage ${stage.id} validation failed`,
+            );
             return { workId, pipeline: pipeline.name, stages: stageResults, status: "failed" };
           }
         }
@@ -367,12 +432,7 @@ export async function runPipeline(
 }
 
 function buildStagePrompt(stage: PipelineStage, goal: string, acceptance: string[]): string {
-  const lines = [
-    `Stage: ${stage.id}`,
-    `Role: ${stage.role}`,
-    `Goal: ${goal}`,
-    "",
-  ];
+  const lines = [`Stage: ${stage.id}`, `Role: ${stage.role}`, `Goal: ${goal}`, ""];
   if (acceptance.length > 0) {
     lines.push("Acceptance criteria:");
     for (const item of acceptance) {

@@ -54,7 +54,10 @@ describe("supermission quick", () => {
       expect(result.stdout).toContain("done: quick-001");
 
       // Verify work record exists and is completed/validated
-      const workYaml = await readFile(join(repo, ".supermission", "quick-001", "work.yaml"), "utf8");
+      const workYaml = await readFile(
+        join(repo, ".supermission", "quick-001", "work.yaml"),
+        "utf8",
+      );
       const work = YAML.parse(workYaml);
       expect(work.status).toBe("completed");
     });

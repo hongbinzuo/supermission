@@ -7,7 +7,7 @@ team collaboration system without abandoning its local-first, git-backed
 philosophy. The key insight: **git is the database for small teams, and an
 optional Coordination Index server is the read-only cache for organizations**.
 
-No team member ever *needs* a server to collaborate. The server exists only to
+No team member ever _needs_ a server to collaborate. The server exists only to
 provide cross-repo aggregation and faster queries at organizational scale.
 
 ---
@@ -98,12 +98,14 @@ For organizations needing cross-repo visibility:
 ```
 
 **What the Coordination Index does:**
+
 1. Periodically clones/pulls all registered repos (or receives webhooks on push)
 2. Reads `.supermission/` directories from each repo
 3. Builds a queryable index in embedded SQLite
 4. Exposes a read-only HTTP API for aggregated queries
 
 **What it does NOT do:**
+
 - Does not write to any repository
 - Does not own any state — can be rebuilt from scratch at any time
 - Does not replace local `.supermission/` files as source of truth
@@ -131,12 +133,13 @@ interface Identity {
   kind: "human" | "agent";
   role: "owner" | "lead" | "developer" | "reviewer" | "agent" | "observer";
   email?: string;
-  backend?: RunnerBackend;  // for agents
-  profile?: string;         // for agents
+  backend?: RunnerBackend; // for agents
+  profile?: string; // for agents
 }
 ```
 
 Resolution order:
+
 1. `--as <identity>` CLI flag
 2. `SUPERMISSION_IDENTITY` environment variable
 3. Match git config `user.name` against team.yaml identities
@@ -160,6 +163,7 @@ type PermissionResult =
 ```
 
 Rules:
+
 - Solo mode (no team.yaml): all actions allowed, guard is a no-op
 - Owner/lead: can do anything
 - Developer: can mutate assigned work only
@@ -181,8 +185,14 @@ interface NotificationWriter {
 interface Notification {
   id: string;
   time: string;
-  type: "assigned" | "needs_review" | "blocking_signal" | "completed" |
-        "conflict" | "dependency_resolved" | "lock_stale";
+  type:
+    | "assigned"
+    | "needs_review"
+    | "blocking_signal"
+    | "completed"
+    | "conflict"
+    | "dependency_resolved"
+    | "lock_stale";
   work_id: string;
   from: string;
   message: string;
@@ -300,11 +310,11 @@ status: running
 owner: alice
 
 # NEW collaboration fields:
-assignee: bob                    # Who is responsible
-team: backend                    # Owning team
-depends_on:                      # Cross-work dependencies
+assignee: bob # Who is responsible
+team: backend # Owning team
+depends_on: # Cross-work dependencies
   - work_id: work-payment-api
-    repo: acme/api               # Optional: cross-repo reference
+    repo: acme/api # Optional: cross-repo reference
 ```
 
 ### lock.yaml (new, per work record)
@@ -457,31 +467,37 @@ supermission board --team backend --status running
 ## Correctness Properties
 
 ### Property 1: Source of Truth Invariant
+
 `.supermission/` files in git are always authoritative. The Coordination Index can be destroyed and rebuilt without data loss. No external system ever writes to the repository.
 
 **Validates: Requirements 8.3, 13.4**
 
 ### Property 2: Solo Mode Invariant
+
 Absence of `team.yaml` means zero collaboration overhead — no permission checks, no identity resolution beyond "local-user", no lock files. All existing tests pass unchanged.
 
 **Validates: Requirements 13.1, 13.2**
 
 ### Property 3: Append-Only Merge Safety
+
 All JSONL files (events, telemetry, inbox) use append-only writes. Concurrent appends from different collaborators produce valid merged files after git pull (different lines, no conflicts).
 
 **Validates: Requirements 4.4, 12.5**
 
 ### Property 4: Lock Exclusivity
+
 At most one Identity holds a lock on a given work record at any time. Lock is represented by file presence — atomic at the filesystem level. A lock can only be released by the holder or force-released by an owner.
 
 **Validates: Requirements 6.1, 6.2, 6.5**
 
 ### Property 5: Eventually Consistent
+
 Team members see each other's state after git pull. The system never requires real-time consistency for correctness — only for convenience (webhooks). No operation blocks waiting for another collaborator's state.
 
 **Validates: Requirements 4.1, 4.5**
 
 ### Property 6: Graceful Degradation
+
 If the Coordination Index is down, all local operations continue normally. Index updates queue locally and retry. No single point of failure exists for core workflow operations.
 
 **Validates: Requirements 8.4, 13.4**
@@ -490,24 +506,25 @@ If the Coordination Index is down, all local operations continue normally. Index
 
 ## Error Handling
 
-| Error Condition | Behavior |
-|----------------|----------|
-| team.yaml missing | Solo mode — all collaboration features disabled, no errors |
-| Unknown assignee | Reject with "unknown identity: X. Run `supermission team list`" |
-| Permission denied | Reject with reason, emit access_denied supervisor signal |
-| Lock conflict | Reject with lock holder info and acquisition time |
-| Stale lock (>timeout) | Emit stale_lock signal, allow owner to force-release |
-| Git merge conflict in work.yaml | Emit merge_conflict signal with resolution guidance |
-| Webhook delivery failure | Log warning, queue for retry in webhook-queue.jsonl |
-| Coordination Index unreachable | Continue locally, queue index updates for retry |
-| Cross-repo dependency target not found | Emit warning signal, do not block local operations |
-| Identity resolution failure | Fall back to "local-user" with warning |
+| Error Condition                        | Behavior                                                        |
+| -------------------------------------- | --------------------------------------------------------------- |
+| team.yaml missing                      | Solo mode — all collaboration features disabled, no errors      |
+| Unknown assignee                       | Reject with "unknown identity: X. Run `supermission team list`" |
+| Permission denied                      | Reject with reason, emit access_denied supervisor signal        |
+| Lock conflict                          | Reject with lock holder info and acquisition time               |
+| Stale lock (>timeout)                  | Emit stale_lock signal, allow owner to force-release            |
+| Git merge conflict in work.yaml        | Emit merge_conflict signal with resolution guidance             |
+| Webhook delivery failure               | Log warning, queue for retry in webhook-queue.jsonl             |
+| Coordination Index unreachable         | Continue locally, queue index updates for retry                 |
+| Cross-repo dependency target not found | Emit warning signal, do not block local operations              |
+| Identity resolution failure            | Fall back to "local-user" with warning                          |
 
 ---
 
 ## Testing Strategy
 
 ### Unit Tests
+
 - Identity resolver: test all resolution paths (flag, env, git config, fallback)
 - Collaboration guard: test permission matrix (role × action × ownership)
 - Lock manager: acquire, release, force-release, stale detection
@@ -515,6 +532,7 @@ If the Coordination Index is down, all local operations continue normally. Index
 - Conflict detector: stale state, scope overlap, concurrent linear_write
 
 ### Integration Tests
+
 - Full team workflow: init → add members → assign → run → review → handoff
 - Conflict scenario: two identities modifying same work record
 - Lock scenario: acquire → reject second → release → acquire succeeds
@@ -522,11 +540,13 @@ If the Coordination Index is down, all local operations continue normally. Index
 - Agent handoff: agent completes → auto-routes to reviewer
 
 ### Property-Based Tests
+
 - JSONL append-only files: concurrent appends always produce valid merged output
 - Identity uniqueness: no two identities share the same id in team.yaml
 - Lock invariant: at most one lock holder per work record at any time
 
 ### E2E Tests
+
 - Two git clones simulating two team members collaborating
 - Coordination Index: start server, register repo, query aggregated state
 - Webhook: mock HTTP server receives expected notification payloads
@@ -535,27 +555,27 @@ If the Coordination Index is down, all local operations continue normally. Index
 
 ## Implementation Phases
 
-| Phase | Scope | Dependencies |
-|-------|-------|-------------|
-| 1 | Identity + Assignment | None (Layer 1 foundation) |
-| 2 | Notifications + Conflict Detection | Phase 1 |
-| 3 | Visibility + Access Control | Phase 1 |
-| 4 | Webhook Integration | Phase 2 |
-| 5 | Cross-Repo + Coordination Index | Phase 1-4 |
+| Phase | Scope                              | Dependencies              |
+| ----- | ---------------------------------- | ------------------------- |
+| 1     | Identity + Assignment              | None (Layer 1 foundation) |
+| 2     | Notifications + Conflict Detection | Phase 1                   |
+| 3     | Visibility + Access Control        | Phase 1                   |
+| 4     | Webhook Integration                | Phase 2                   |
+| 5     | Cross-Repo + Coordination Index    | Phase 1-4                 |
 
 ---
 
 ## Comparison with Multica and Slock.ai
 
-| Capability | Multica | Slock.ai | Supermission (this design) |
-|-----------|---------|----------|---------------------------|
-| Sync mechanism | PostgreSQL + WebSocket | Server + WebSocket | Git push/pull + optional index |
-| Real-time | Yes (WebSocket) | Yes (WebSocket) | Eventual (git) + webhook for alerts |
-| Server required | Yes (Go backend) | Yes (cloud) | No (optional for cross-repo only) |
-| Agent execution | Daemon on user machine | Daemon on user machine | CLI runner (daemon planned V1) |
-| Task assignment | Web UI board | Chat-based | CLI + file-based |
-| Team structure | Workspaces | Channels | team.yaml + workspace.yaml |
-| Persistence | PostgreSQL | Server DB | Git-backed files |
-| Offline capable | No | No | Yes (full functionality offline) |
-| Rebuild from scratch | No (DB is truth) | No | Yes (files are truth) |
-| Chat/messaging | Issue comments | Channels/DMs/threads | Not included (artifacts + inbox) |
+| Capability           | Multica                | Slock.ai               | Supermission (this design)          |
+| -------------------- | ---------------------- | ---------------------- | ----------------------------------- |
+| Sync mechanism       | PostgreSQL + WebSocket | Server + WebSocket     | Git push/pull + optional index      |
+| Real-time            | Yes (WebSocket)        | Yes (WebSocket)        | Eventual (git) + webhook for alerts |
+| Server required      | Yes (Go backend)       | Yes (cloud)            | No (optional for cross-repo only)   |
+| Agent execution      | Daemon on user machine | Daemon on user machine | CLI runner (daemon planned V1)      |
+| Task assignment      | Web UI board           | Chat-based             | CLI + file-based                    |
+| Team structure       | Workspaces             | Channels               | team.yaml + workspace.yaml          |
+| Persistence          | PostgreSQL             | Server DB              | Git-backed files                    |
+| Offline capable      | No                     | No                     | Yes (full functionality offline)    |
+| Rebuild from scratch | No (DB is truth)       | No                     | Yes (files are truth)               |
+| Chat/messaging       | Issue comments         | Channels/DMs/threads   | Not included (artifacts + inbox)    |

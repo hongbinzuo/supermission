@@ -91,7 +91,11 @@ async function readRegistry(repo: string): Promise<TeamRegistry> {
     const text = await readFile(paths.team, "utf8");
     return TeamRegistrySchema.parse(YAML.parse(text));
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && (error as { code: string }).code === "ENOENT") {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code: string }).code === "ENOENT"
+    ) {
       throw new Error("team not initialized. Run `supermission team init` first.");
     }
     throw error;

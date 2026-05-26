@@ -5,6 +5,7 @@
 This document specifies the collaboration capabilities for Supermission, enabling the system to scale from single-user workflows to small team (2-5 people) and multi-team organizational use. The design preserves Supermission's local-first, git-backed, file-first philosophy while adding identity, assignment, visibility, notifications, workspace scoping, conflict detection, and optional cross-repo coordination.
 
 The collaboration model is layered:
+
 - **Layer 0 (Solo):** Current single-user, single-repo behavior (unchanged).
 - **Layer 1 (Small Team):** Git-native collaboration within a single repo using file conventions and git as the sync mechanism.
 - **Layer 2 (Organization):** Optional coordination server for cross-repo visibility, team management, and aggregated status.

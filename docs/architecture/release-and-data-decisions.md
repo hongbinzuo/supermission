@@ -21,7 +21,7 @@ The repository now includes `LICENSE`. Package metadata should use
 
 Package name decision: use `@hongbinzuo/supermission` for npm because the
 unscoped `supermission` package name is already occupied by another project.
-Keep the binary command as `mission`.
+Keep the binary command as `supermission`.
 
 ## Public Release Path
 
@@ -30,7 +30,7 @@ Recommended order:
 1. Keep local development as the only install path until CLI contracts are
    stable enough for early adopters.
 2. Publish an npm package first because the project is already Bun/Node based
-   and exposes a `mission` binary.
+   and exposes a `supermission` binary.
 3. Add GitHub Releases with checksums and changelog after npm packaging works.
 4. Add Homebrew and Docker only after the CLI, file layout, and runner
    configuration are stable.
