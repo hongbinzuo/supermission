@@ -21,14 +21,7 @@ describe("Team collaboration", () => {
   it("adds human team members", async () => {
     await withTempRepo(async (repo) => {
       await runWork(repo, ["team", "init"]);
-      const result = await runWork(repo, [
-        "team",
-        "add",
-        "--name",
-        "Alice",
-        "--role",
-        "lead",
-      ]);
+      const result = await runWork(repo, ["team", "add", "--name", "Alice", "--role", "lead"]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("alice human lead - Alice");
 

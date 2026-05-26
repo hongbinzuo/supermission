@@ -111,7 +111,9 @@ export class ProcessGuard {
       }
 
       if (orphansKilled > 0) {
-        console.log(`supermission: cleaned up ${orphansKilled} orphan process(es) from previous session`);
+        console.log(
+          `supermission: cleaned up ${orphansKilled} orphan process(es) from previous session`,
+        );
       }
     } catch {
       // No children file — nothing to clean up
@@ -132,7 +134,11 @@ export class ProcessGuard {
   /** Write current children PIDs to file */
   private async writeChildren(): Promise<void> {
     if (this.children.size === 0) {
-      try { await unlink(this.childrenPath); } catch { /* ignore */ }
+      try {
+        await unlink(this.childrenPath);
+      } catch {
+        /* ignore */
+      }
       return;
     }
     await writeFile(this.childrenPath, [...this.children].join("\n") + "\n", "utf8");
@@ -140,8 +146,16 @@ export class ProcessGuard {
 
   /** Remove PID files on clean exit */
   private async cleanup(): Promise<void> {
-    try { await unlink(this.pidPath); } catch { /* ignore */ }
-    try { await unlink(this.childrenPath); } catch { /* ignore */ }
+    try {
+      await unlink(this.pidPath);
+    } catch {
+      /* ignore */
+    }
+    try {
+      await unlink(this.childrenPath);
+    } catch {
+      /* ignore */
+    }
   }
 }
 

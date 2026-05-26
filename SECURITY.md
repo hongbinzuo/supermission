@@ -17,6 +17,7 @@ Last reviewed: 2026-05-26
 **Vector:** Validation commands run with `shell: true` in `runShell()`  
 **Impact:** If a malicious `work.yaml` contains crafted validation commands, they execute with full shell access  
 **Mitigation:**
+
 - Validation commands come from the work creator (trusted user)
 - `policy.yaml` `validation_allowlist` restricts which commands can run
 - Risky commands require explicit `--allow-risky` flag + gate approval
@@ -30,6 +31,7 @@ Last reviewed: 2026-05-26
 **Vector:** `.supermission/integrations.yaml` stores API keys for Linear/Jira/GitHub  
 **Impact:** Keys visible in git history if committed  
 **Mitigation:**
+
 - `.supermission/integrations.yaml` should be added to `.gitignore`
 - CLI redacts keys in display output
 - Keys are never written to event logs or artifacts
@@ -42,6 +44,7 @@ Last reviewed: 2026-05-26
 **Vector:** A pipeline or batch command could spawn unlimited agent processes  
 **Impact:** Resource exhaustion, unexpected API costs  
 **Mitigation:**
+
 - Pipelines execute stages sequentially (not parallel)
 - `timeout_ms` configuration limits individual runner duration
 - Cost tracking (`supermission cost`) provides visibility
@@ -61,6 +64,7 @@ Last reviewed: 2026-05-26
 **Vector:** Two users check for lock absence simultaneously, both proceed to create lock  
 **Impact:** Concurrent mutations on same work record  
 **Mitigation:**
+
 - Git merge conflicts surface the issue on push
 - Lock files are advisory, not kernel-level locks
 - Append-only JSONL files handle concurrent writes gracefully
@@ -76,15 +80,15 @@ Last reviewed: 2026-05-26
 
 ## Comparison with OpenClaw CVEs
 
-| OpenClaw CVE | Applicable to Supermission? | Status |
-|-------------|---------------------------|--------|
-| CVE-2026-26972 (path traversal in downloads) | No — Supermission has no download/browser features | N/A |
-| CVE-2026-43567 (outPath traversal) | Similar risk in `--id` flag | Fixed |
-| CVE-2026-26321 (file exfiltration via media) | No — no media/file serving to external parties | N/A |
-| CVE-2026-25253 (RCE via malicious link) | No — no URL handling or web content rendering | N/A |
-| CVE-2026-43533 (path traversal via QQBot) | No — no chat/bot integration | N/A |
-| GHSA-jjgj-cpp9-cvpv (MCP tool injection) | Partially — runner prompts could be manipulated | Mitigated by validation gates |
-| SSRF via webhook | Future risk when webhooks are implemented | Noted |
+| OpenClaw CVE                                 | Applicable to Supermission?                        | Status                        |
+| -------------------------------------------- | -------------------------------------------------- | ----------------------------- |
+| CVE-2026-26972 (path traversal in downloads) | No — Supermission has no download/browser features | N/A                           |
+| CVE-2026-43567 (outPath traversal)           | Similar risk in `--id` flag                        | Fixed                         |
+| CVE-2026-26321 (file exfiltration via media) | No — no media/file serving to external parties     | N/A                           |
+| CVE-2026-25253 (RCE via malicious link)      | No — no URL handling or web content rendering      | N/A                           |
+| CVE-2026-43533 (path traversal via QQBot)    | No — no chat/bot integration                       | N/A                           |
+| GHSA-jjgj-cpp9-cvpv (MCP tool injection)     | Partially — runner prompts could be manipulated    | Mitigated by validation gates |
+| SSRF via webhook                             | Future risk when webhooks are implemented          | Noted                         |
 
 ## Security Best Practices Applied
 

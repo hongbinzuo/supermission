@@ -73,20 +73,20 @@ stages:
 
 Supermission 支持 12 种 runner 后端，具备智能选择和自动降级：
 
-| 后端 | CLI 命令 | 说明 |
-|------|----------|------|
-| `shell` | 任意 | 执行本地 shell 命令 |
-| `claude` | `claude` | Anthropic Claude Code |
-| `codex` | `codex` | OpenAI Codex |
-| `gemini` | `gemini` | Google Gemini CLI |
-| `aider` | `aider` | Aider AI 结对编程 |
-| `opencode` | `opencode` | OpenCode 终端 Agent |
-| `copilot` | `gh` | GitHub Copilot CLI |
-| `amazon-q` | `q` | Amazon Q Developer |
-| `goose` | `goose` | Block Goose Agent |
-| `kiro` | `kiro` | AWS Kiro CLI |
-| `grok` | `grok` | xAI Grok CLI |
-| `record` | — | 记录外部/手动执行 |
+| 后端       | CLI 命令   | 说明                  |
+| ---------- | ---------- | --------------------- |
+| `shell`    | 任意       | 执行本地 shell 命令   |
+| `claude`   | `claude`   | Anthropic Claude Code |
+| `codex`    | `codex`    | OpenAI Codex          |
+| `gemini`   | `gemini`   | Google Gemini CLI     |
+| `aider`    | `aider`    | Aider AI 结对编程     |
+| `opencode` | `opencode` | OpenCode 终端 Agent   |
+| `copilot`  | `gh`       | GitHub Copilot CLI    |
+| `amazon-q` | `q`        | Amazon Q Developer    |
+| `goose`    | `goose`    | Block Goose Agent     |
+| `kiro`     | `kiro`     | AWS Kiro CLI          |
+| `grok`     | `grok`     | xAI Grok CLI          |
+| `record`   | —          | 记录外部/手动执行     |
 
 智能选择自动检测已安装的 CLI 并按角色路由：
 
@@ -95,10 +95,10 @@ Supermission 支持 12 种 runner 后端，具备智能选择和自动降级：
 default_backend: auto
 fallback_order: [claude, codex, gemini]
 routing:
-  planner-agent: gemini      # 规划用便宜的
-  worker-agent: claude       # 编码用最强的
-  tester-agent: codex        # 测试用 Codex
-  reviewer-agent: gemini     # 评审用便宜的
+  planner-agent: gemini # 规划用便宜的
+  worker-agent: claude # 编码用最强的
+  tester-agent: codex # 测试用 Codex
+  reviewer-agent: gemini # 评审用便宜的
 ```
 
 ## 团队协作
@@ -334,16 +334,16 @@ Git 证据和隔离：
 路线图按 milestone 维护，必须随实现变化更新。未来 agent 的维护规则见
 [`AGENTS.md`](./AGENTS.md)。
 
-| 里程碑 | 重点                                                                                                  | 当前状态 |
-| ------ | ----------------------------------------------------------------------------------------------------- | -------- |
-| V0     | 本地 work records、CLI 状态机、artifacts、验证、评审、交接、回退计划                                  | 完成     |
+| 里程碑 | 重点                                                                                                                             | 当前状态 |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| V0     | 本地 work records、CLI 状态机、artifacts、验证、评审、交接、回退计划                                                             | 完成     |
 | V0.5   | 统一 runner 层：12 种后端（shell、codex、claude、gemini、aider、opencode、copilot、amazon-q、goose、kiro、grok）；智能选择和降级 | 完成     |
-| V0.6   | 多 Agent 流水线、团队协作、任务分配、看板视图、成本追踪、Web 仪表盘、安装脚本                         | 完成     |
-| V0.7   | 项目管理（里程碑、周期、优先级）、Linear/Jira/GitHub 集成、导入/导出                                  | 进行中   |
-| V0.8   | 通知系统（收件箱、Webhook）、锁管理器、冲突检测、协调索引服务                                         | 计划中   |
-| V1     | Terminal TUI（React Ink）、完善 Web 仪表盘、Runner 流式进度                                           | 计划中   |
-| V1.5   | 编辑器适配器（VS Code、Kiro）、Agent 持久记忆                                                         | 计划中   |
-| V2     | 开源扩展点、npm 发布、Homebrew、兼容性目标文档                                                        | 计划中   |
+| V0.6   | 多 Agent 流水线、团队协作、任务分配、看板视图、成本追踪、Web 仪表盘、安装脚本                                                    | 完成     |
+| V0.7   | 项目管理（里程碑、周期、优先级）、Linear/Jira/GitHub 集成、导入/导出                                                             | 进行中   |
+| V0.8   | 通知系统（收件箱、Webhook）、锁管理器、冲突检测、协调索引服务                                                                    | 计划中   |
+| V1     | Terminal TUI（React Ink）、完善 Web 仪表盘、Runner 流式进度                                                                      | 计划中   |
+| V1.5   | 编辑器适配器（VS Code、Kiro）、Agent 持久记忆                                                                                    | 计划中   |
+| V2     | 开源扩展点、npm 发布、Homebrew、兼容性目标文档                                                                                   | 计划中   |
 
 主要对标基线是 Factory Missions 的协作规划、按 milestone 执行和验证闭环。
 Supermission 的定位是这个方向的开源、本地优先版本，`.supermission/` 是 source of truth。

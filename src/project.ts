@@ -48,7 +48,9 @@ export const ProjectConfigSchema = z.object({
   version: z.number().int().positive().default(1),
   name: z.string().min(1),
   description: z.string().default(""),
-  labels: z.array(z.string().min(1)).default(["bug", "feature", "chore", "security", "performance"]),
+  labels: z
+    .array(z.string().min(1))
+    .default(["bug", "feature", "chore", "security", "performance"]),
   milestones: z.array(MilestoneSchema).default([]),
   cycles: z.array(CycleSchema).default([]),
   integrations: z.array(IntegrationSchema).default([]),
@@ -64,7 +66,11 @@ export function projectPath(repo: string): string {
 
 // --- Project Operations ---
 
-export async function initProject(repo: string, name: string, description?: string): Promise<ProjectConfig> {
+export async function initProject(
+  repo: string,
+  name: string,
+  description?: string,
+): Promise<ProjectConfig> {
   const config: ProjectConfig = {
     version: 1,
     name,
@@ -85,7 +91,11 @@ export async function readProject(repo: string): Promise<ProjectConfig | null> {
     const text = await readFile(projectPath(repo), "utf8");
     return ProjectConfigSchema.parse(YAML.parse(text));
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && (error as { code: string }).code === "ENOENT") {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code: string }).code === "ENOENT"
+    ) {
       return null;
     }
     throw error;
@@ -200,30 +210,42 @@ export function parseCSVImport(content: string): ImportRecord[] {
   const assigneeIdx = headers.indexOf("assignee");
   const acceptanceIdx = headers.indexOf("acceptance");
 
-  return lines.slice(1).filter((line) => line.trim().length > 0).map((line) => {
-    const cols = parseCSVLine(line);
-    return {
-      goal: cols[goalIdx] ?? "",
-      acceptance: acceptanceIdx >= 0 && cols[acceptanceIdx] ? cols[acceptanceIdx].split(";").map((s) => s.trim()) : undefined,
-      priority: priorityIdx >= 0 ? cols[priorityIdx] : undefined,
-      milestone: milestoneIdx >= 0 ? cols[milestoneIdx] : undefined,
-      labels: labelsIdx >= 0 && cols[labelsIdx] ? cols[labelsIdx].split(";").map((s) => s.trim()) : undefined,
-      assignee: assigneeIdx >= 0 ? cols[assigneeIdx] : undefined,
-    };
-  }).filter((r) => r.goal.length > 0);
+  return lines
+    .slice(1)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      const cols = parseCSVLine(line);
+      return {
+        goal: cols[goalIdx] ?? "",
+        acceptance:
+          acceptanceIdx >= 0 && cols[acceptanceIdx]
+            ? cols[acceptanceIdx].split(";").map((s) => s.trim())
+            : undefined,
+        priority: priorityIdx >= 0 ? cols[priorityIdx] : undefined,
+        milestone: milestoneIdx >= 0 ? cols[milestoneIdx] : undefined,
+        labels:
+          labelsIdx >= 0 && cols[labelsIdx]
+            ? cols[labelsIdx].split(";").map((s) => s.trim())
+            : undefined,
+        assignee: assigneeIdx >= 0 ? cols[assigneeIdx] : undefined,
+      };
+    })
+    .filter((r) => r.goal.length > 0);
 }
 
 export function parseJSONImport(content: string): ImportRecord[] {
   const data = JSON.parse(content) as unknown;
   if (!Array.isArray(data)) throw new Error("JSON import must be an array");
-  return (data as Record<string, unknown>[]).map((item) => ({
-    goal: String(item.goal ?? item.title ?? item.summary ?? ""),
-    acceptance: Array.isArray(item.acceptance) ? item.acceptance.map(String) : undefined,
-    priority: item.priority ? String(item.priority) : undefined,
-    milestone: item.milestone ? String(item.milestone) : undefined,
-    labels: Array.isArray(item.labels) ? item.labels.map(String) : undefined,
-    assignee: item.assignee ? String(item.assignee) : undefined,
-  })).filter((r) => r.goal.length > 0);
+  return (data as Record<string, unknown>[])
+    .map((item) => ({
+      goal: String(item.goal ?? item.title ?? item.summary ?? ""),
+      acceptance: Array.isArray(item.acceptance) ? item.acceptance.map(String) : undefined,
+      priority: item.priority ? String(item.priority) : undefined,
+      milestone: item.milestone ? String(item.milestone) : undefined,
+      labels: Array.isArray(item.labels) ? item.labels.map(String) : undefined,
+      assignee: item.assignee ? String(item.assignee) : undefined,
+    }))
+    .filter((r) => r.goal.length > 0);
 }
 
 function parseCSVLine(line: string): string[] {
@@ -244,15 +266,47 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-export function exportCSV(works: Array<{ id: string; goal: string; status: string; priority?: string; milestone?: string; assignee?: string; labels?: string[]; created_at: string; updated_at: string }>): string {
+export function exportCSV(
+  works: Array<{
+    id: string;
+    goal: string;
+    status: string;
+    priority?: string;
+    milestone?: string;
+    assignee?: string;
+    labels?: string[];
+    created_at: string;
+    updated_at: string;
+  }>,
+): string {
   const headers = "id,goal,status,priority,milestone,assignee,labels,created_at,updated_at";
   const rows = works.map((w) =>
-    [w.id, csvEscape(w.goal), w.status, w.priority ?? "medium", w.milestone ?? "", w.assignee ?? "", (w.labels ?? []).join(";"), w.created_at, w.updated_at].join(",")
+    [
+      w.id,
+      csvEscape(w.goal),
+      w.status,
+      w.priority ?? "medium",
+      w.milestone ?? "",
+      w.assignee ?? "",
+      (w.labels ?? []).join(";"),
+      w.created_at,
+      w.updated_at,
+    ].join(","),
   );
   return [headers, ...rows].join("\n") + "\n";
 }
 
-export function exportMarkdown(works: Array<{ id: string; goal: string; status: string; priority?: string; milestone?: string; assignee?: string }>, projectName: string): string {
+export function exportMarkdown(
+  works: Array<{
+    id: string;
+    goal: string;
+    status: string;
+    priority?: string;
+    milestone?: string;
+    assignee?: string;
+  }>,
+  projectName: string,
+): string {
   const lines = [`# ${projectName} — Progress Report`, "", `Generated: ${utcNow()}`, ""];
 
   // Group by milestone
@@ -267,8 +321,14 @@ export function exportMarkdown(works: Array<{ id: string; goal: string; status: 
     if (items.length === 0) continue;
     lines.push(`## ${milestone}`, "");
     const completed = items.filter((w) => w.status === "completed").length;
-    lines.push(`Progress: ${completed}/${items.length} (${Math.round((completed / items.length) * 100)}%)`, "");
-    lines.push("| Status | Priority | Goal | Assignee |", "|--------|----------|------|----------|");
+    lines.push(
+      `Progress: ${completed}/${items.length} (${Math.round((completed / items.length) * 100)}%)`,
+      "",
+    );
+    lines.push(
+      "| Status | Priority | Goal | Assignee |",
+      "|--------|----------|------|----------|",
+    );
     for (const w of items) {
       lines.push(`| ${w.status} | ${w.priority ?? "medium"} | ${w.goal} | ${w.assignee ?? "—"} |`);
     }

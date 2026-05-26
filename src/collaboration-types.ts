@@ -151,6 +151,4 @@ export type WorkspaceConfig = z.infer<typeof WorkspaceConfigSchema>;
 
 export type CollabAction = "assign" | "transition" | "approve" | "run" | "validate" | "handoff";
 
-export type PermissionResult =
-  | { allowed: true }
-  | { allowed: false; reason: string };
+export type PermissionResult = { allowed: true } | { allowed: false; reason: string };

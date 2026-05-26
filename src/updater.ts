@@ -34,7 +34,12 @@ export async function checkForUpdates(silent = true): Promise<void> {
     // Check latest version from git
     const { stdout } = await execFileAsync(
       "git",
-      ["ls-remote", "--tags", "--sort=-v:refname", "https://github.com/hongbinzuo/supermission.git"],
+      [
+        "ls-remote",
+        "--tags",
+        "--sort=-v:refname",
+        "https://github.com/hongbinzuo/supermission.git",
+      ],
       { timeout: 5000 },
     );
 
@@ -48,7 +53,12 @@ export async function checkForUpdates(silent = true): Promise<void> {
     const current = state.currentVersion;
     const updateAvailable = latest !== current && latest > current;
 
-    await writeState({ lastCheck: now, currentVersion: current, latestVersion: latest, updateAvailable });
+    await writeState({
+      lastCheck: now,
+      currentVersion: current,
+      latestVersion: latest,
+      updateAvailable,
+    });
 
     if (updateAvailable && !silent) {
       console.log(`\n  Update available: ${current} → ${latest}`);
@@ -69,7 +79,10 @@ export async function performUpdate(): Promise<void> {
     console.log("  Pulling latest...");
     try {
       await execFileAsync("git", ["fetch", "origin"], { cwd: INSTALL_DIR, timeout: 15000 });
-      await execFileAsync("git", ["reset", "--hard", "origin/main"], { cwd: INSTALL_DIR, timeout: 5000 });
+      await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+        cwd: INSTALL_DIR,
+        timeout: 5000,
+      });
     } catch {
       // If fetch fails, try simple pull
       await execFileAsync("git", ["pull", "--ff-only"], { cwd: INSTALL_DIR, timeout: 30000 });
@@ -89,7 +102,11 @@ export async function performUpdate(): Promise<void> {
     if (hasBun) {
       await execFileAsync("bun", ["run", "build"], { cwd: INSTALL_DIR, timeout: 30000 });
     } else {
-      await execFileAsync("npx", ["tsup", "src/cli.ts", "--format", "esm", "--dts", "--clean", "--out-dir", "dist"], { cwd: INSTALL_DIR, timeout: 30000 });
+      await execFileAsync(
+        "npx",
+        ["tsup", "src/cli.ts", "--format", "esm", "--dts", "--clean", "--out-dir", "dist"],
+        { cwd: INSTALL_DIR, timeout: 30000 },
+      );
     }
 
     // Read new version
@@ -117,7 +134,9 @@ async function readState(): Promise<UpdateState> {
     try {
       const pkg = JSON.parse(await readFile(join(INSTALL_DIR, "package.json"), "utf8"));
       currentVersion = `v${pkg.version}`;
-    } catch { /* use default */ }
+    } catch {
+      /* use default */
+    }
     return { lastCheck: 0, currentVersion };
   }
 }
@@ -126,7 +145,9 @@ async function writeState(state: UpdateState): Promise<void> {
   try {
     await mkdir(join(homedir(), ".supermission-cli"), { recursive: true });
     await writeFile(STATE_FILE, JSON.stringify(state), "utf8");
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function commandExists(cmd: string): Promise<boolean> {

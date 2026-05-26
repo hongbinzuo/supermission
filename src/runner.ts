@@ -305,7 +305,10 @@ export async function executeRunnerWithFallback(
   }
 
   // Then default_backend
-  if (config.default_backend !== "auto" && !chain.includes(config.default_backend as RunnerBackend)) {
+  if (
+    config.default_backend !== "auto" &&
+    !chain.includes(config.default_backend as RunnerBackend)
+  ) {
     chain.push(config.default_backend as RunnerBackend);
   }
 
@@ -341,9 +344,7 @@ export async function executeRunnerWithFallback(
 function formatFallbackAttempts(attempts: RunnerExecution[]): string {
   if (attempts.length === 0) return "";
   return (
-    attempts
-      .map((a) => `fallback: ${a.backend} failed (exit ${a.exitCode})`)
-      .join("\n") + "\n"
+    attempts.map((a) => `fallback: ${a.backend} failed (exit ${a.exitCode})`).join("\n") + "\n"
   );
 }
 
@@ -755,13 +756,7 @@ async function executeGeminiRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "--prompt",
-    prompt,
-    "--sandbox",
-    "false",
-    "--yes",
-  ];
+  const args = ["--prompt", prompt, "--sandbox", "false", "--yes"];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();
@@ -789,13 +784,7 @@ async function executeAiderRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "--message",
-    prompt,
-    "--yes-always",
-    "--no-auto-commits",
-    "--no-git",
-  ];
+  const args = ["--message", prompt, "--yes-always", "--no-auto-commits", "--no-git"];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();
@@ -823,12 +812,7 @@ async function executeOpencodeRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "run",
-    "--prompt",
-    prompt,
-    "--non-interactive",
-  ];
+  const args = ["run", "--prompt", prompt, "--non-interactive"];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();
@@ -856,11 +840,7 @@ async function executeCopilotRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "agent",
-    "--message",
-    prompt,
-  ];
+  const args = ["agent", "--message", prompt];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();
@@ -888,12 +868,7 @@ async function executeAmazonQRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "dev",
-    "--prompt",
-    prompt,
-    "--non-interactive",
-  ];
+  const args = ["dev", "--prompt", prompt, "--non-interactive"];
 
   const startedAt = isoNow();
   const started = performance.now();
@@ -920,12 +895,7 @@ async function executeGooseRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "run",
-    "--text",
-    prompt,
-    "--no-session",
-  ];
+  const args = ["run", "--text", prompt, "--no-session"];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();
@@ -953,12 +923,7 @@ async function executeKiroRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "run",
-    "--prompt",
-    prompt,
-    "--non-interactive",
-  ];
+  const args = ["run", "--prompt", prompt, "--non-interactive"];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();
@@ -986,12 +951,7 @@ async function executeGrokRunner(
   options: RunnerOptions,
 ): Promise<RunnerExecution> {
   const prompt = options.prompt ?? buildWorkPrompt(context);
-  const args = [
-    "run",
-    "--prompt",
-    prompt,
-    "--non-interactive",
-  ];
+  const args = ["run", "--prompt", prompt, "--non-interactive"];
   if (options.model) args.push("--model", options.model);
 
   const startedAt = isoNow();

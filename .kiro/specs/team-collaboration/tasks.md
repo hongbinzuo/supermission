@@ -91,13 +91,13 @@ This plan implements team collaboration for Supermission in 5 phases, progressin
 ```json
 {
   "waves": [
-    {"wave": 1, "tasks": [1]},
-    {"wave": 2, "tasks": [2, 6, 9]},
-    {"wave": 3, "tasks": [3, 4, 5, 7, 10, 11]},
-    {"wave": 4, "tasks": [8, 12, 15, 19]},
-    {"wave": 5, "tasks": [13, 14, 16, 20]},
-    {"wave": 6, "tasks": [17]},
-    {"wave": 7, "tasks": [18]}
+    { "wave": 1, "tasks": [1] },
+    { "wave": 2, "tasks": [2, 6, 9] },
+    { "wave": 3, "tasks": [3, 4, 5, 7, 10, 11] },
+    { "wave": 4, "tasks": [8, 12, 15, 19] },
+    { "wave": 5, "tasks": [13, 14, 16, 20] },
+    { "wave": 6, "tasks": [17] },
+    { "wave": 7, "tasks": [18] }
   ]
 }
 ```

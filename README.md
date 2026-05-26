@@ -93,20 +93,20 @@ stages:
 
 Supermission supports 12 runner backends with smart selection and fallback:
 
-| Backend | CLI | Description |
-|---------|-----|-------------|
-| `shell` | any | Execute local shell commands |
-| `claude` | `claude` | Anthropic Claude Code |
-| `codex` | `codex` | OpenAI Codex |
-| `gemini` | `gemini` | Google Gemini CLI |
-| `aider` | `aider` | Aider AI pair programming |
-| `opencode` | `opencode` | OpenCode terminal agent |
-| `copilot` | `gh` | GitHub Copilot CLI |
-| `amazon-q` | `q` | Amazon Q Developer |
-| `goose` | `goose` | Block Goose agent |
-| `kiro` | `kiro` | AWS Kiro CLI |
-| `grok` | `grok` | xAI Grok CLI |
-| `record` | — | Record external/manual runs |
+| Backend    | CLI        | Description                  |
+| ---------- | ---------- | ---------------------------- |
+| `shell`    | any        | Execute local shell commands |
+| `claude`   | `claude`   | Anthropic Claude Code        |
+| `codex`    | `codex`    | OpenAI Codex                 |
+| `gemini`   | `gemini`   | Google Gemini CLI            |
+| `aider`    | `aider`    | Aider AI pair programming    |
+| `opencode` | `opencode` | OpenCode terminal agent      |
+| `copilot`  | `gh`       | GitHub Copilot CLI           |
+| `amazon-q` | `q`        | Amazon Q Developer           |
+| `goose`    | `goose`    | Block Goose agent            |
+| `kiro`     | `kiro`     | AWS Kiro CLI                 |
+| `grok`     | `grok`     | xAI Grok CLI                 |
+| `record`   | —          | Record external/manual runs  |
 
 Smart selection auto-detects installed CLIs and routes by role:
 
@@ -474,16 +474,16 @@ The roadmap is milestone-based and should change with the implementation. See
 [`AGENTS.md`](./AGENTS.md) for the rule that future agents must keep this section
 and release docs current.
 
-| Milestone | Focus                                                                                                                                                  | Current status |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
-| V0        | Local-first work records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                                 | Done           |
-| V0.5      | Unified runner layer: 12 backends (shell, codex, claude, gemini, aider, opencode, copilot, amazon-q, goose, kiro, grok); smart selection and fallback  | Done           |
-| V0.6      | Multi-agent pipelines, team collaboration, assignment, board view, cost tracking, web dashboard, install scripts                                        | Done           |
-| V0.7      | Project management (milestones, cycles, priorities), Linear/Jira/GitHub integration, import/export                                                     | In progress    |
-| V0.8      | Notifications (inbox, webhooks), lock manager, conflict detection, coordination index                                                                  | Planned        |
-| V1        | Terminal TUI (React Ink), polished web dashboard, streaming runner progress                                                                             | Planned        |
-| V1.5      | Editor adapters (VS Code, Kiro), persistent agent memory                                                                                               | Planned        |
-| V2        | Open-source extension points, npm publish, Homebrew, documented compatibility targets                                                                  | Planned        |
+| Milestone | Focus                                                                                                                                                 | Current status |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| V0        | Local-first work records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                                | Done           |
+| V0.5      | Unified runner layer: 12 backends (shell, codex, claude, gemini, aider, opencode, copilot, amazon-q, goose, kiro, grok); smart selection and fallback | Done           |
+| V0.6      | Multi-agent pipelines, team collaboration, assignment, board view, cost tracking, web dashboard, install scripts                                      | Done           |
+| V0.7      | Project management (milestones, cycles, priorities), Linear/Jira/GitHub integration, import/export                                                    | In progress    |
+| V0.8      | Notifications (inbox, webhooks), lock manager, conflict detection, coordination index                                                                 | Planned        |
+| V1        | Terminal TUI (React Ink), polished web dashboard, streaming runner progress                                                                           | Planned        |
+| V1.5      | Editor adapters (VS Code, Kiro), persistent agent memory                                                                                              | Planned        |
+| V2        | Open-source extension points, npm publish, Homebrew, documented compatibility targets                                                                 | Planned        |
 
 Primary baseline: Factory Missions-style collaborative planning, milestone
 execution, and validation. Supermission is the open-source, local-first version

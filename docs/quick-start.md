@@ -88,10 +88,10 @@ supermission release work-001
 default_backend: auto
 fallback_order: [claude, codex, gemini]
 routing:
-  planner-agent: gemini        # Cheap, good at planning
-  worker-agent: claude         # Best at complex coding
-  tester-agent: codex          # Good at test generation
-  reviewer-agent: gemini       # Cheap, good at review
+  planner-agent: gemini # Cheap, good at planning
+  worker-agent: claude # Best at complex coding
+  tester-agent: codex # Good at test generation
+  reviewer-agent: gemini # Cheap, good at review
 ```
 
 ## Custom Pipelines
@@ -122,17 +122,17 @@ Then run: `supermission pipeline run my-pipeline "Your goal"`
 
 ## Key Commands Reference
 
-| Command | Purpose |
-|---------|---------|
-| `supermission init` | Setup project, detect agents |
-| `supermission quick "goal"` | One-shot end-to-end |
-| `supermission pipeline run <name> "goal"` | Multi-agent pipeline |
-| `supermission board` | Kanban view |
-| `supermission list` | List all work |
-| `supermission cost <id>` | Token/cost report |
-| `supermission serve` | Web dashboard |
-| `supermission team init` | Setup collaboration |
-| `supermission runner list` | Show available agents |
+| Command                                   | Purpose                      |
+| ----------------------------------------- | ---------------------------- |
+| `supermission init`                       | Setup project, detect agents |
+| `supermission quick "goal"`               | One-shot end-to-end          |
+| `supermission pipeline run <name> "goal"` | Multi-agent pipeline         |
+| `supermission board`                      | Kanban view                  |
+| `supermission list`                       | List all work                |
+| `supermission cost <id>`                  | Token/cost report            |
+| `supermission serve`                      | Web dashboard                |
+| `supermission team init`                  | Setup collaboration          |
+| `supermission runner list`                | Show available agents        |
 
 ## File Structure
 
