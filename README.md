@@ -91,20 +91,21 @@ stages:
 
 ## Supported Agent Backends
 
-Supermission supports 12 runner backends with smart selection and fallback:
+Supermission supports 13 runner backends with smart selection and fallback:
 
 | Backend    | CLI        | Description                  |
 | ---------- | ---------- | ---------------------------- |
 | `shell`    | any        | Execute local shell commands |
-| `claude`   | `claude`   | Anthropic Claude Code        |
 | `codex`    | `codex`    | OpenAI Codex                 |
+| `claude`   | `claude`   | Anthropic Claude Code        |
+| `kiro`     | `kiro`     | AWS Kiro CLI                 |
+| `kimi`     | `kimi`     | Moonshot Kimi CLI            |
 | `gemini`   | `gemini`   | Google Gemini CLI            |
 | `aider`    | `aider`    | Aider AI pair programming    |
 | `opencode` | `opencode` | OpenCode terminal agent      |
 | `copilot`  | `gh`       | GitHub Copilot CLI           |
 | `amazon-q` | `q`        | Amazon Q Developer           |
 | `goose`    | `goose`    | Block Goose agent            |
-| `kiro`     | `kiro`     | AWS Kiro CLI                 |
 | `grok`     | `grok`     | xAI Grok CLI                 |
 | `record`   | —          | Record external/manual runs  |
 
@@ -113,7 +114,7 @@ Smart selection auto-detects installed CLIs and routes by role:
 ```yaml
 # .supermission/runners.yaml
 default_backend: auto
-fallback_order: [claude, codex, gemini]
+fallback_order: [codex, claude, kiro, kimi, gemini]
 routing:
   planner-agent: gemini
   worker-agent: claude
@@ -211,6 +212,11 @@ supermission pipeline init           # Create pipeline templates
 supermission quick "Your first task" # Run end-to-end
 ```
 
+When `superm` runs inside tmux, creating a new work item automatically opens a
+standard terminal layout: the current pane stays as the control pane, with
+right, bottom, and bottom-right panes for status, monitor, and trace views. Set
+`SUPERMISSION_TERMINAL_LAYOUT=0` to disable the auto layout.
+
 ## Execution Model
 
 V0 is orchestration-ready but intentionally linear for code mutations.
@@ -306,6 +312,7 @@ bin/supermission task add <work-id> \
   --actor-role tester-agent \
   --mutation-mode sidecar_artifact \
   --scope-allow ".supermission/**"
+bin/supermission task rename <work-id> task-002 --title "Review test plan"
 bin/supermission task set-status <work-id> task-002 --status done
 bin/supermission task audit-scope <work-id> task-001
 bin/supermission runner list
@@ -416,6 +423,7 @@ Task ledger:
 
 - `supermission tasks`
 - `supermission task add`
+- `supermission task rename`
 - `supermission task set-status`
 - `supermission task audit-scope`
 
@@ -474,16 +482,16 @@ The roadmap is milestone-based and should change with the implementation. See
 [`AGENTS.md`](./AGENTS.md) for the rule that future agents must keep this section
 and release docs current.
 
-| Milestone | Focus                                                                                                                                                 | Current status |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| V0        | Local-first work records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                                | Done           |
-| V0.5      | Unified runner layer: 12 backends (shell, codex, claude, gemini, aider, opencode, copilot, amazon-q, goose, kiro, grok); smart selection and fallback | Done           |
-| V0.6      | Multi-agent pipelines, team collaboration, assignment, board view, cost tracking, web dashboard, install scripts                                      | Done           |
-| V0.7      | Project management (milestones, cycles, priorities), Linear/Jira/GitHub integration, import/export                                                    | In progress    |
-| V0.8      | Notifications (inbox, webhooks), lock manager, conflict detection, coordination index                                                                 | Planned        |
-| V1        | Terminal TUI (React Ink), polished web dashboard, streaming runner progress                                                                           | Planned        |
-| V1.5      | Editor adapters (VS Code, Kiro), persistent agent memory                                                                                              | Planned        |
-| V2        | Open-source extension points, npm publish, Homebrew, documented compatibility targets                                                                 | Planned        |
+| Milestone | Focus                                                                                                                                                       | Current status |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| V0        | Local-first work records, CLI state machine, artifacts, validation, review, handoff, rollback planning                                                      | Done           |
+| V0.5      | Unified runner layer: 13 backends (shell, codex, claude, kiro, kimi, gemini, aider, opencode, copilot, amazon-q, goose, grok); smart selection and fallback | Done           |
+| V0.6      | Multi-agent pipelines, team collaboration, assignment, board view, cost tracking, web dashboard, install scripts                                            | Done           |
+| V0.7      | Project management (milestones, cycles, priorities), Linear/Jira/GitHub integration, import/export                                                          | In progress    |
+| V0.8      | Notifications (inbox, webhooks), lock manager, conflict detection, coordination index                                                                       | Planned        |
+| V1        | Terminal TUI (React Ink), polished web dashboard, streaming runner progress                                                                                 | Planned        |
+| V1.5      | Editor adapters (VS Code, Kiro), persistent agent memory                                                                                                    | Planned        |
+| V2        | Open-source extension points, npm publish, Homebrew, documented compatibility targets                                                                       | Planned        |
 
 Primary baseline: Factory Missions-style collaborative planning, milestone
 execution, and validation. Supermission is the open-source, local-first version
@@ -594,8 +602,8 @@ the current full count.
 - `summary` prints a compact human review surface with status, findings, counts,
   and artifact paths.
 - `review create` generates a human-reviewable `review.md` from current evidence.
-- `task add/set-status` lets sidecar work be recorded without opening parallel
-  code mutations.
+- `task add/rename/set-status` lets sidecar work be recorded and renamed without
+  opening parallel code mutations.
 - `task set-status --status running` prevents concurrent `linear_write` tasks.
   Completed dependencies automatically unblock pending dependent tasks.
 - `task audit-scope` checks current git changes against a task's allow/deny

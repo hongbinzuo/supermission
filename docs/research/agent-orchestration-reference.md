@@ -234,7 +234,7 @@ Useful ideas:
 
 Supermission mapping:
 
-- `record`, `shell`, `codex`, and `claude` are early runner backends.
+- `record`, `shell`, `codex`, `claude`, `kiro`, and `kimi` are early runner backends.
 - Future backends should implement the same runner contract.
 
 ## Design Decisions For Now

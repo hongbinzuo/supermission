@@ -276,13 +276,14 @@ describe("WorkStore", () => {
           shell: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           codex: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           claude: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          kiro: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          kimi: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           gemini: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           aider: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           opencode: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           copilot: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           "amazon-q": { fallback_profiles: [], tools: [], retry: defaultRetry() },
           goose: { fallback_profiles: [], tools: [], retry: defaultRetry() },
-          kiro: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           grok: { fallback_profiles: [], tools: [], retry: defaultRetry() },
         },
       });
@@ -307,13 +308,14 @@ describe("WorkStore", () => {
             retry: { attempts: 2, delay_ms: 0, exit_codes: [1, 124] },
           },
           claude: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          kiro: { fallback_profiles: [], tools: [], retry: defaultRetry() },
+          kimi: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           gemini: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           aider: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           opencode: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           copilot: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           "amazon-q": { fallback_profiles: [], tools: [], retry: defaultRetry() },
           goose: { fallback_profiles: [], tools: [], retry: defaultRetry() },
-          kiro: { fallback_profiles: [], tools: [], retry: defaultRetry() },
           grok: { fallback_profiles: [], tools: [], retry: defaultRetry() },
         },
       });
@@ -1472,6 +1474,40 @@ describe("WorkStore", () => {
           task: "task-002",
           from: "ready",
           to: "done",
+        }),
+      );
+    });
+  });
+
+  it("renames tasks and records rename evidence", async () => {
+    await withTempRepo(async (repo) => {
+      const store = new WorkStore(repo);
+      await store.createWork({
+        id: "work-task-rename",
+        goal: "Task rename",
+        actor: "local-user",
+        acceptance: [],
+        validationCommands: [],
+      });
+
+      const renamed = await store.renameTask(
+        "work-task-rename",
+        "task-001",
+        "Implement rename command",
+        "planner-agent",
+      );
+
+      expect(renamed.title).toBe("Implement rename command");
+      expect((await store.readTask("work-task-rename", "task-001")).title).toBe(
+        "Implement rename command",
+      );
+      expect(await store.readEvents("work-task-rename")).toContainEqual(
+        expect.objectContaining({
+          type: "task.renamed",
+          actor: "planner-agent",
+          task: "task-001",
+          from: "Implement work workflow",
+          to: "Implement rename command",
         }),
       );
     });

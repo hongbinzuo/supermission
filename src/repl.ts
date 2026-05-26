@@ -11,6 +11,8 @@ const DEFAULT_AGENT_LANGUAGE_INSTRUCTION =
 
 type PromptWorkContext = Pick<WorkSpec, "id" | "goal" | "acceptance" | "status">;
 
+type EnvLike = Record<string, string | undefined>;
+
 type SlashCommand = {
   name: string;
   completion: string;
@@ -22,7 +24,11 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "board", completion: "/board", description: "Board view" },
   { name: "list", completion: "/list", description: "List all work items" },
   { name: "use", completion: "/use ", description: "Switch to work item #id" },
-  { name: "close", completion: "/close ", description: "Close the current or specified work item" },
+  {
+    name: "close",
+    completion: "/close ",
+    description: "Close the current or one or more work items",
+  },
   { name: "new", completion: "/new ", description: "Create a new work item" },
   { name: "status", completion: "/status ", description: "Show work status" },
   { name: "cost", completion: "/cost ", description: "Show token cost" },
@@ -34,6 +40,52 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "trace", completion: "/trace", description: "Show trace evidence" },
   { name: "summary", completion: "/summary", description: "Show work summary" },
 ];
+
+export function parseCloseIds(arg: string, currentWorkId: string | null): string[] {
+  const tokens = arg.split(/\s+/).filter((token) => token.length > 0);
+  if (tokens.length > 0) {
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const token of tokens) {
+      if (seen.has(token)) continue;
+      seen.add(token);
+      unique.push(token);
+    }
+    return unique;
+  }
+  return currentWorkId ? [currentWorkId] : [];
+}
+
+export type CloseWorksOutcome = {
+  lines: string[];
+  closedCurrent: boolean;
+};
+
+export async function closeWorks(
+  store: Pick<WorkStore, "updateStatus">,
+  ids: string[],
+  reason: string,
+  currentWorkId: string | null = null,
+  actor = "local-user",
+): Promise<CloseWorksOutcome> {
+  const lines: string[] = [];
+  let closedCurrent = false;
+  let succeeded = 0;
+  for (const id of ids) {
+    try {
+      await store.updateStatus(id, "completed", actor, reason);
+      lines.push(`  [#${id} closed]`);
+      succeeded++;
+      if (id === currentWorkId) closedCurrent = true;
+    } catch (error) {
+      lines.push(`  [#${id} error: ${error instanceof Error ? error.message : error}]`);
+    }
+  }
+  if (ids.length > 1) {
+    lines.push(`  [closed ${succeeded}/${ids.length} work item(s)]`);
+  }
+  return { lines, closedCurrent };
+}
 
 export function suggestSlashCommands(input: string): string[] {
   if (!input.startsWith("/")) return [];
@@ -61,7 +113,7 @@ export function formatHelpText(): string {
   /board              Board view
   /list               List all work items
   /use <id>           Switch to work item #id
-  /close [id]         Close the current or specified work item
+  /close [id...]      Close the current or one or more work items
   /new "goal"         Create a new work item
   /status [id]        Show work status
   /cost [id]          Show token cost
@@ -90,6 +142,56 @@ export function buildAgentPrompt({
       : input;
 
   return `${DEFAULT_AGENT_LANGUAGE_INSTRUCTION}\n\n${userRequest}`;
+}
+
+export function shouldAutoCreateTerminalLayout(env: EnvLike = process.env): boolean {
+  if (!env.TMUX) return false;
+  return env.SUPERMISSION_TERMINAL_LAYOUT !== "0";
+}
+
+export function buildStandardTerminalLayoutCommands({
+  repo,
+  workId,
+  supermissionBin,
+}: {
+  repo: string;
+  workId: string;
+  supermissionBin: string;
+}): string[][] {
+  return [
+    [
+      "split-window",
+      "-h",
+      "-c",
+      repo,
+      "-l",
+      "40%",
+      terminalPaneCommand("right", supermissionBin, "status", workId),
+    ],
+    ["select-pane", "-L"],
+    [
+      "split-window",
+      "-v",
+      "-c",
+      repo,
+      "-l",
+      "30%",
+      terminalPaneCommand("bottom", supermissionBin, "monitor", workId),
+    ],
+    ["select-pane", "-U"],
+    ["select-pane", "-R"],
+    [
+      "split-window",
+      "-v",
+      "-c",
+      repo,
+      "-l",
+      "30%",
+      terminalPaneCommand("bottom-right", supermissionBin, "trace", workId),
+    ],
+    ["select-pane", "-L"],
+    ["select-pane", "-U"],
+  ];
 }
 
 export async function startRepl(repo: string): Promise<void> {
@@ -198,6 +300,7 @@ export async function startRepl(repo: string): Promise<void> {
       });
       rl.setPrompt(prompt());
       console.log(`  [work #${currentWorkId} created]`);
+      await maybeCreateStandardTerminalLayout(repo, currentWorkId);
     }
 
     // Build prompt with work context if resuming.
@@ -303,7 +406,7 @@ export async function startRepl(repo: string): Promise<void> {
 
 type SlashResult = { newWorkId?: string | null };
 
-async function handleSlash(
+export async function handleSlash(
   input: string,
   store: WorkStore,
   repo: string,
@@ -340,18 +443,14 @@ async function handleSlash(
       return {};
 
     case "close": {
-      const id = arg || currentWorkId;
-      if (!id) {
-        console.log("  Usage: /close <id>");
+      const ids = parseCloseIds(arg, currentWorkId);
+      if (ids.length === 0) {
+        console.log("  Usage: /close <id> [id...]");
         return {};
       }
-      try {
-        await store.updateStatus(id, "completed", "local-user", "Closed from REPL");
-        console.log(`  [#${id} closed]`);
-        if (id === currentWorkId) return { newWorkId: null };
-      } catch (e) {
-        console.log(`  [error: ${e instanceof Error ? e.message : e}]`);
-      }
+      const result = await closeWorks(store, ids, "Closed from REPL", currentWorkId);
+      for (const line of result.lines) console.log(line);
+      if (result.closedCurrent) return { newWorkId: null };
       return {};
     }
 
@@ -368,6 +467,7 @@ async function handleSlash(
         validationCommands: [],
       });
       console.log(`  [work #${id} created: ${goal}]`);
+      await maybeCreateStandardTerminalLayout(repo, id);
       return { newWorkId: id };
     }
 
@@ -407,6 +507,63 @@ async function handleSlash(
 }
 
 // --- Launch agent in full interactive mode ---
+
+async function maybeCreateStandardTerminalLayout(repo: string, workId: string): Promise<void> {
+  if (!shouldAutoCreateTerminalLayout()) return;
+
+  const commands = buildStandardTerminalLayoutCommands({
+    repo,
+    workId,
+    supermissionBin: currentSupermissionCommand(),
+  });
+  try {
+    for (const args of commands) {
+      await runTmux(args);
+    }
+    console.log("  [standard terminal layout created: right, bottom, bottom-right]");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`  [terminal layout skipped: ${message}]`);
+  }
+}
+
+function terminalPaneCommand(
+  pane: "right" | "bottom" | "bottom-right",
+  supermissionBin: string,
+  command: "status" | "monitor" | "trace",
+  workId: string,
+): string {
+  return `printf '\\033]2;superm #${workId} ${pane}\\033\\\\'; ${supermissionBin} ${command} ${workId}; exec "$SHELL"`;
+}
+
+function currentSupermissionCommand(): string {
+  if (process.env.SUPERMISSION_BIN) return process.env.SUPERMISSION_BIN;
+  const entrypoint = process.argv[1];
+  if (!entrypoint) return "supermission";
+  if (entrypoint.endsWith("src/cli.ts")) {
+    return `${shellQuote(process.execPath)} ${shellQuote(entrypoint)}`;
+  }
+  return shellQuote(entrypoint);
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function runTmux(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("tmux", args, { stdio: "ignore" });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`tmux ${args[0]} exited ${code ?? 1}`));
+    });
+  });
+}
 
 function launchAgentSession(backend: string, initialPrompt: string, cwd: string): Promise<number> {
   return new Promise((resolve) => {

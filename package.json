@@ -1,7 +1,7 @@
 {
   "name": "@hongbinzuo/supermission",
-  "version": "0.6.2",
-  "description": "Local-first work records for AI-assisted software work. Multi-agent pipelines, team collaboration, 12 runner backends.",
+  "version": "0.6.3",
+  "description": "Local-first work records for AI-assisted software work. Multi-agent pipelines, team collaboration, 13 runner backends.",
   "type": "module",
   "license": "Apache-2.0",
   "homepage": "https://github.com/hongbinzuo/supermission#readme",

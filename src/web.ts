@@ -352,8 +352,10 @@ async function getEnvironment(store: WorkStore) {
 
   // Detect agent CLIs
   const agents = [
-    { name: "claude", cmd: "claude", versionFlag: "--version" },
     { name: "codex", cmd: "codex", versionFlag: "--version" },
+    { name: "claude", cmd: "claude", versionFlag: "--version" },
+    { name: "kiro", cmd: "kiro", versionFlag: "--version" },
+    { name: "kimi", cmd: "kimi", versionFlag: "--version" },
     { name: "gemini", cmd: "gemini", versionFlag: "--version" },
     { name: "aider", cmd: "aider", versionFlag: "--version" },
     { name: "opencode", cmd: "opencode", versionFlag: "--version" },
@@ -769,7 +771,7 @@ async function loadBuilder() {
   document.getElementById('tabs').innerHTML = '';
   el.innerHTML = '';
 
-  const backends = ['claude','codex','gemini','aider','opencode','copilot','amazon-q','goose','kiro','grok','shell'];
+  const backends = ['codex','claude','kiro','kimi','gemini','aider','opencode','copilot','amazon-q','goose','grok','shell'];
   const templates = [
     { id: 'plan', role: 'planner-agent', prompt: 'Break down this into implementation steps' },
     { id: 'code', role: 'worker-agent', prompt: 'Implement according to the plan' },

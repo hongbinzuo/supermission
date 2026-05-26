@@ -105,15 +105,16 @@ function Detect-Agents {
     Write-Host ""
     Write-Info "Detecting agent CLIs..."
     $agents = @(
-        @{cmd="claude"; label="Claude Code"},
         @{cmd="codex"; label="OpenAI Codex"},
+        @{cmd="claude"; label="Claude Code"},
+        @{cmd="kiro"; label="Kiro"},
+        @{cmd="kimi"; label="Kimi"},
         @{cmd="gemini"; label="Gemini CLI"},
         @{cmd="aider"; label="Aider"},
         @{cmd="opencode"; label="OpenCode"},
         @{cmd="gh"; label="GitHub Copilot"},
         @{cmd="q"; label="Amazon Q"},
         @{cmd="goose"; label="Goose"},
-        @{cmd="kiro"; label="Kiro"},
         @{cmd="grok"; label="Grok"}
     )
     $found = 0

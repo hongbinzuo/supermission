@@ -111,6 +111,63 @@ describe("work CLI", () => {
     });
   });
 
+  it("hides terminal work from the default list", async () => {
+    await withTempRepo(async (repo) => {
+      await runWork(repo, ["new", "Active draft", "--id", "active-draft"]);
+      await runWork(repo, [
+        "new",
+        "Completed work",
+        "--id",
+        "completed-work",
+        "--validation",
+        `${bunBin} --version`,
+      ]);
+      await runWork(repo, ["new", "Failed work", "--id", "failed-work"]);
+      await runWork(repo, ["new", "Cancelled work", "--id", "cancelled-work"]);
+      await runWork(repo, ["new", "Aborted work", "--id", "aborted-work"]);
+      await runWork(repo, ["plan", "completed-work"]);
+      await runWork(repo, ["approve", "completed-work"]);
+      await runWork(repo, ["run", "completed-work", "--note", "external worker"]);
+      await runWork(repo, ["validate", "completed-work"]);
+      await runWork(repo, ["handoff", "completed-work"]);
+      await runWork(repo, ["validate", "failed-work", "--cmd", `${bunBin} -e "process.exit(7)"`]);
+      for (const [id, status] of [
+        ["cancelled-work", "cancelled"],
+        ["aborted-work", "aborted"],
+      ]) {
+        const path = join(repo, ".supermission", id, "work.yaml");
+        await writeFile(
+          path,
+          (await readFile(path, "utf8")).replace("status: draft", `status: ${status}`),
+        );
+      }
+
+      const list = await runWork(repo, ["list"]);
+      expect(list.exitCode).toBe(0);
+      expect(list.stdout).toContain("active-draft draft");
+      expect(list.stdout).not.toContain("completed-work completed");
+      expect(list.stdout).not.toContain("failed-work failed");
+      expect(list.stdout).not.toContain("cancelled-work cancelled");
+      expect(list.stdout).not.toContain("aborted-work aborted");
+
+      const completed = await runWork(repo, ["list", "--status", "completed"]);
+      expect(completed.exitCode).toBe(0);
+      expect(completed.stdout).toContain("completed-work completed");
+
+      const failed = await runWork(repo, ["list", "--status", "failed"]);
+      expect(failed.exitCode).toBe(0);
+      expect(failed.stdout).toContain("failed-work failed");
+
+      const cancelled = await runWork(repo, ["list", "--status", "cancelled"]);
+      expect(cancelled.exitCode).toBe(0);
+      expect(cancelled.stdout).toContain("cancelled-work cancelled");
+
+      const aborted = await runWork(repo, ["list", "--status", "aborted"]);
+      expect(aborted.exitCode).toBe(0);
+      expect(aborted.stdout).toContain("aborted-work aborted");
+    });
+  });
+
   it("uses project runner config when run options are omitted", async () => {
     await withTempRepo(async (repo) => {
       const init = await runWork(repo, [
@@ -642,6 +699,17 @@ describe("work CLI", () => {
       ]);
       expect(added.exitCode).toBe(0);
       expect(added.stdout).toContain("task-002 ready sidecar_artifact");
+
+      const renamed = await runWork(repo, [
+        "task",
+        "rename",
+        "work-task-cli",
+        "task-002",
+        "--title",
+        "Review test plan",
+      ]);
+      expect(renamed.exitCode).toBe(0);
+      expect(renamed.stdout).toContain("task-002 renamed - Review test plan");
 
       const status = await runWork(repo, [
         "task",
